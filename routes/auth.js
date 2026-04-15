@@ -11,7 +11,8 @@ const DEV_MODE = process.env.NODE_ENV !== "production";
 //  Email sending – prefers Resend HTTP API, falls back to SMTP
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendConfirmEmail(email, token) {
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  // Ensure no trailing slash in base URL
+  let baseUrl = (process.env.BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
   const link = `${baseUrl}/api/auth/confirm/${token}`;
 
   console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -94,7 +95,7 @@ async function sendConfirmEmail(email, token) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Routes (register, confirm, login, logout, me)
+//  Routes
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/register", async (req, res, next) => {
   try {
