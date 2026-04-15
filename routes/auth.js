@@ -6,80 +6,121 @@ const User = require("../models/User");
 const { JWT_SECRET } = require("../middleware/auth");
 
 const DEV_MODE = process.env.NODE_ENV !== "production";
-function createTransporter() {
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Email sending – prefers Resend HTTP API, falls back to SMTP
+// ─────────────────────────────────────────────────────────────────────────────
+async function sendConfirmEmail(email, token) {
+  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  const link = `${baseUrl}/api/auth/confirm/${token}`;
+
+  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log(`[CONFIRM] ${email}`);
+  console.log(`[CONFIRM] ${link}`);
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;
+                background:#0f1218;color:#c8d8e8;border-radius:8px;">
+      <h2 style="color:#00d4ff;letter-spacing:2px;">ESP32 · IoT Hub</h2>
+      <p>Click the button below to confirm your email. Expires in <strong>24 hours</strong>.</p>
+      <a href="${link}" style="display:inline-block;margin:24px 0;padding:12px 28px;
+         background:#00d4ff;color:#0a0c10;border-radius:6px;font-weight:bold;
+         text-decoration:none;">Confirm Email</a>
+      <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
+    </div>`;
+
+  // 1) Try Resend HTTP API (recommended for Railway)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "ESP32 IoT Hub <onboarding@resend.dev>",
+          to: email,
+          subject: "Confirm your ESP32 IoT Hub account",
+          html: html,
+        }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Resend API error: ${response.status} - ${errorText}`);
+      }
+      console.log("[AUTH] Confirmation email sent via Resend");
+      return;
+    } catch (err) {
+      console.error("[AUTH] Resend failed, falling back to SMTP:", err.message);
+    }
+  }
+
+  // 2) Fallback to SMTP (Gmail / Outlook) for local development
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log("[AUTH] EMAIL_USER/EMAIL_PASS not set — skipping email send.");
+    return;
+  }
+
   const service = (process.env.EMAIL_SERVICE || "gmail").toLowerCase();
+  let transporter;
 
   if (["outlook", "hotmail", "live"].includes(service)) {
-    return nodemailer.createTransport({
+    transporter = nodemailer.createTransport({
       host: "smtp-mail.outlook.com",
       port: 587,
       secure: false,
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
       tls: { ciphers: "SSLv3" },
     });
+  } else {
+    transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      family: 4, // force IPv4
+    });
   }
 
-  // Gmail with IPv4 forced
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false, // TLS
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    tls: {
-      rejectUnauthorized: false, // sometimes needed on cloud platforms
-    },
-    // Force IPv4
-    family: 4,
-  });
-}
-
-async function sendConfirmEmail(email, token) {
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-  const link = `${baseUrl}/api/auth/confirm/${token}`;
-  console.log(`\n[CONFIRM] ${email}\n${link}\n`);
-
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.warn("Email credentials missing – confirmation email not sent.");
-    return;
-  }
-
-  const transporter = createTransporter();
   await transporter.sendMail({
     from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Confirm your ESP32 IoT Hub account",
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#0f1218;color:#c8d8e8;border-radius:8px;">
-        <h2 style="color:#00d4ff;">ESP32 · IoT Hub</h2>
-        <p>Click below to confirm your email. Expires in 24 hours.</p>
-        <a href="${link}" style="display:inline-block;margin:24px 0;padding:12px 28px;background:#00d4ff;color:#0a0c10;border-radius:6px;font-weight:bold;text-decoration:none;">Confirm Email</a>
-        <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
-      </div>`,
+    html: html,
   });
+  console.log("[AUTH] Confirmation email sent via SMTP");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Routes (register, confirm, login, logout, me)
+// ─────────────────────────────────────────────────────────────────────────────
 router.post("/register", async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    if (!email || !password)
+      return res.status(400).json({ error: "Email and password required" });
 
     let user = await User.findOne({ email });
-    if (user?.isVerified) return res.status(409).json({ error: "Email already registered" });
+    if (user && user.isVerified)
+      return res.status(409).json({ error: "Email already registered" });
 
-    if (!user) user = new User({ email, password });
-    else user.password = password;
+    if (!user) {
+      user = new User({ email, password });
+    } else {
+      user.password = password;
+    }
 
     const token = user.generateConfirmToken();
     await user.save();
 
+    // Send email – never block registration if it fails
     sendConfirmEmail(email, token).catch(err => console.error("Email error:", err));
 
     res.json({
       message: DEV_MODE
-        ? "Registered! Copy the confirmation link from the console."
+        ? "Registered! Copy the confirmation link from the server console and open it."
         : "Registered! Check your email to confirm your account.",
     });
   } catch (err) {
@@ -118,7 +159,8 @@ router.get("/confirm/:token", async (req, res, next) => {
 router.post("/login", async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    if (!email || !password)
+      return res.status(400).json({ error: "Email and password required" });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: "Invalid email or password" });
@@ -126,13 +168,12 @@ router.post("/login", async (req, res, next) => {
     const match = await user.comparePassword(password);
     if (!match) return res.status(401).json({ error: "Invalid email or password" });
 
-    if (!user.isVerified) {
+    if (!user.isVerified)
       return res.status(403).json({
         error: DEV_MODE
-          ? "Email not verified. Copy confirmation link from console."
+          ? "Email not verified. Copy the confirmation link from the server console."
           : "Please confirm your email before logging in.",
       });
-    }
 
     user.lastLogin = new Date();
     await user.save();
