@@ -6,9 +6,9 @@ const User = require("../models/User");
 const { JWT_SECRET } = require("../middleware/auth");
 
 const DEV_MODE = process.env.NODE_ENV !== "production";
-
 function createTransporter() {
   const service = (process.env.EMAIL_SERVICE || "gmail").toLowerCase();
+
   if (["outlook", "hotmail", "live"].includes(service)) {
     return nodemailer.createTransport({
       host: "smtp-mail.outlook.com",
@@ -18,9 +18,21 @@ function createTransporter() {
       tls: { ciphers: "SSLv3" },
     });
   }
+
+  // Gmail with IPv4 forced
   return nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // TLS
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+    tls: {
+      rejectUnauthorized: false, // sometimes needed on cloud platforms
+    },
+    // Force IPv4
+    family: 4,
   });
 }
 
