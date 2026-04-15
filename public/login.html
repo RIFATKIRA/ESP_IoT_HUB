@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ESP32 IoT Hub — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Rajdhani:wght@400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;background:#0a0c10;display:flex;align-items:center;justify-content:center;font-family:'Rajdhani',sans-serif;color:#c8d8e8;}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,0.015) 2px,rgba(0,212,255,0.015) 4px);pointer-events:none}
+.card{width:100%;max-width:400px;padding:40px 36px;background:#0f1218;border:1px solid #1e2a38;border-radius:10px;position:relative}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#00d4ff,transparent)}
+.logo{text-align:center;margin-bottom:32px}
+.logo-icon{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border:2px solid #00d4ff;border-radius:8px;font-family:'Orbitron',monospace;font-size:12px;color:#00d4ff;margin-bottom:12px;box-shadow:0 0 16px rgba(0,212,255,0.3)}
+.logo-text{font-family:'Orbitron',sans-serif;font-size:18px;font-weight:600;color:#00d4ff;letter-spacing:3px}
+.logo-sub{font-family:'Share Tech Mono',monospace;font-size:10px;color:#3a5a78;letter-spacing:2px;margin-top:4px}
+.tabs{display:flex;gap:0;margin-bottom:28px;border:1px solid #1e2a38;border-radius:6px;overflow:hidden}
+.tab{flex:1;padding:10px;background:transparent;border:none;color:#7a9ab8;font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:600;letter-spacing:1px;cursor:pointer;transition:all .2s;text-transform:uppercase}
+.tab.active{background:#00d4ff18;color:#00d4ff;border-bottom:2px solid #00d4ff}
+.form{display:none}
+.form.active{display:block}
+.field{margin-bottom:18px}
+label{display:block;font-size:11px;letter-spacing:2px;color:#3a5a78;text-transform:uppercase;font-family:'Share Tech Mono',monospace;margin-bottom:6px}
+input{width:100%;padding:11px 14px;background:#151a22;border:1px solid #1e2a38;border-radius:5px;color:#c8d8e8;font-family:'Rajdhani',sans-serif;font-size:15px;outline:none;transition:border-color .2s}
+input:focus{border-color:#00d4ff}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#00d4ff,#0088aa);border:none;border-radius:5px;color:#0a0c10;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:600;letter-spacing:2px;cursor:pointer;margin-top:8px;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.msg{margin-top:16px;padding:10px 14px;border-radius:5px;font-size:13px;font-family:'Share Tech Mono',monospace;display:none}
+.msg.success{background:rgba(0,255,136,.08);border:1px solid #00aa55;color:#00ff88}
+.msg.error{background:rgba(255,68,102,.08);border:1px solid #aa2233;color:#ff4466}
+.msg.info{background:rgba(0,212,255,.08);border:1px solid #0088aa;color:#00d4ff}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">IOT</div>
+    <div class="logo-text">ESP32 · HUB</div>
+    <div class="logo-sub">DEVICE MANAGEMENT SYSTEM</div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('login')">Login</button>
+    <button class="tab" onclick="switchTab('register')">Register</button>
+  </div>
+
+  <div class="form active" id="form-login">
+    <div class="field"><label>Email Address</label><input type="email" id="login-email" placeholder="admin@example.com" autocomplete="email"/></div>
+    <div class="field"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/></div>
+    <button class="btn" onclick="doLogin()">LOGIN</button>
+    <div class="msg" id="login-msg"></div>
+  </div>
+
+  <div class="form" id="form-register">
+    <div class="field"><label>Email Address</label><input type="email" id="reg-email" placeholder="admin@example.com" autocomplete="email"/></div>
+    <div class="field"><label>Password</label><input type="password" id="reg-password" placeholder="Min. 6 characters" autocomplete="new-password"/></div>
+    <div class="field"><label>Confirm Password</label><input type="password" id="reg-password2" placeholder="Repeat password"/></div>
+    <button class="btn" onclick="doRegister()">CREATE ACCOUNT</button>
+    <div class="msg" id="register-msg"></div>
+  </div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0 && tab==='login')||(i===1 && tab==='register')));
+  document.getElementById('form-login').classList.toggle('active', tab==='login');
+  document.getElementById('form-register').classList.toggle('active', tab==='register');
+}
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = `msg ${type}`; el.style.display = 'block';
+}
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('confirmed') === '1') { showMsg('login-msg', '✅ Email confirmed! You can now log in.', 'success'); switchTab('login'); }
+  else if (params.get('error') === 'expired') { showMsg('login-msg', '❌ Confirmation link expired. Please register again.', 'error'); switchTab('register'); }
+  else if (params.get('error') === 'invalid') showMsg('login-msg', '❌ Invalid confirmation link.', 'error');
+  else if (params.get('info') === 'already_verified') showMsg('login-msg', 'ℹ️ Email already verified. Please log in.', 'info');
+  if (window.location.search) window.history.replaceState({}, document.title, window.location.pathname);
+})();
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim(), pass = document.getElementById('login-password').value;
+  if (!email || !pass) return showMsg('login-msg','Fill in all fields','error');
+  const btn = document.querySelector('#form-login .btn'); btn.disabled = true; btn.textContent = 'LOGGING IN...';
+  try {
+    const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({email, password: pass}) });
+    const data = await res.json();
+    if (!res.ok) showMsg('login-msg', data.error || 'Login failed', 'error');
+    else { localStorage.setItem('iot_token', data.token); showMsg('login-msg', 'Login successful! Redirecting...', 'success'); setTimeout(() => window.location.href = '/', 800); }
+  } catch { showMsg('login-msg', 'Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'LOGIN'; }
+}
+async function doRegister() {
+  const email = document.getElementById('reg-email').value.trim(), pass = document.getElementById('reg-password').value, pass2 = document.getElementById('reg-password2').value;
+  if (!email || !pass) return showMsg('register-msg','Fill in all fields','error');
+  if (pass !== pass2) return showMsg('register-msg','Passwords do not match','error');
+  if (pass.length < 6) return showMsg('register-msg','Password must be at least 6 characters','error');
+  const btn = document.querySelector('#form-register .btn'); btn.disabled = true; btn.textContent = 'CREATING...';
+  try {
+    const res = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: pass}) });
+    const data = await res.json();
+    if (!res.ok) showMsg('register-msg', data.error || 'Registration failed', 'error');
+    else showMsg('register-msg', 'Account created! Check your email to confirm.', 'success');
+  } catch { showMsg('register-msg', 'Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'CREATE ACCOUNT'; }
+}
+document.addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('form-login').classList.contains('active') ? doLogin() : doRegister(); });
+const existing = localStorage.getItem('iot_token');
+if (existing) fetch('/api/auth/me', { headers:{'Authorization':'Bearer '+existing}, credentials:'include' }).then(r => { if(r.ok) window.location.href='/'; });
+</script>
+</body>
+</html>

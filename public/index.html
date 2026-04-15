@@ -1,632 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>ESP32 IoT Control Panel</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;600;900&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;600;900&display=swap" rel="stylesheet"/>
 <script src="/socket.io/socket.io.js"></script>
 <style>
-  :root {
-    --bg:       #0a0c10;
-    --bg2:      #0f1218;
-    --bg3:      #151a22;
-    --border:   #1e2a38;
-    --border2:  #263344;
-    --accent:   #00d4ff;
-    --accent2:  #0088aa;
-    --green:    #00ff88;
-    --green2:   #00aa55;
-    --red:      #ff4466;
-    --red2:     #aa2233;
-    --amber:    #ffaa00;
-    --text:     #c8d8e8;
-    --text2:    #7a9ab8;
-    --text3:    #3a5a78;
-    --card-glow: rgba(0,212,255,0.06);
-    --font-mono: 'Share Tech Mono', monospace;
-    --font-ui:   'Rajdhani', sans-serif;
-    --font-head: 'Orbitron', sans-serif;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-ui);
-    font-size: 15px;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /* Grid scanline effect */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,212,255,0.015) 2px,
-      rgba(0,212,255,0.015) 4px
-    );
-    pointer-events: none;
-    z-index: 1000;
-  }
-
-  /* ── HEADER ─────────────────────────────────── */
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 28px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg2);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .logo-icon {
-    width: 36px; height: 36px;
-    border: 2px solid var(--accent);
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-head);
-    font-size: 12px;
-    color: var(--accent);
-    letter-spacing: 1px;
-    box-shadow: 0 0 12px rgba(0,212,255,0.3), inset 0 0 8px rgba(0,212,255,0.1);
-    animation: pulse-border 3s ease-in-out infinite;
-  }
-
-  @keyframes pulse-border {
-    0%, 100% { box-shadow: 0 0 12px rgba(0,212,255,0.3), inset 0 0 8px rgba(0,212,255,0.1); }
-    50% { box-shadow: 0 0 20px rgba(0,212,255,0.6), inset 0 0 12px rgba(0,212,255,0.2); }
-  }
-
-  .logo-text {
-    font-family: var(--font-head);
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--accent);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-  }
-
-  .logo-sub {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text3);
-    letter-spacing: 2px;
-    margin-top: 2px;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-  }
-
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text2);
-  }
-
-  .status-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-    animation: blink 2s ease-in-out infinite;
-  }
-
-  .status-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
-
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  .stat-chip {
-    padding: 4px 10px;
-    border: 1px solid var(--border2);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text2);
-    background: var(--bg3);
-  }
-
-  .stat-chip span { color: var(--accent); font-weight: bold; }
-
-  /* ── MAIN LAYOUT ─────────────────────────────── */
-  main {
-    padding: 24px 28px;
-    max-width: 1600px;
-    margin: 0 auto;
-  }
-
-  /* ── SECTION HEADER ──────────────────────────── */
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-
-  .section-title {
-    font-family: var(--font-head);
-    font-size: 11px;
-    letter-spacing: 4px;
-    color: var(--text3);
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .section-title::before {
-    content: '';
-    width: 20px; height: 1px;
-    background: var(--accent);
-    display: inline-block;
-  }
-
-  /* ── STATS ROW ───────────────────────────────── */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 28px;
-  }
-
-  .stat-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px 20px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent), transparent);
-  }
-
-  .stat-label {
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--text3);
-    text-transform: uppercase;
-    font-family: var(--font-mono);
-    margin-bottom: 8px;
-  }
-
-  .stat-value {
-    font-family: var(--font-head);
-    font-size: 28px;
-    font-weight: 900;
-    color: var(--accent);
-    line-height: 1;
-  }
-
-  .stat-value.green { color: var(--green); }
-  .stat-value.red   { color: var(--red); }
-  .stat-value.amber { color: var(--amber); }
-
-  /* ── DEVICE GRID ─────────────────────────────── */
-  .devices-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-    gap: 16px;
-  }
-
-  /* ── DEVICE CARD ─────────────────────────────── */
-  .device-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: border-color 0.3s, box-shadow 0.3s;
-    animation: card-in 0.4s ease both;
-  }
-
-  @keyframes card-in {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .device-card:hover {
-    border-color: var(--border2);
-    box-shadow: 0 0 20px var(--card-glow);
-  }
-
-  .device-card.online {
-    border-color: rgba(0,255,136,0.2);
-    box-shadow: 0 0 16px rgba(0,255,136,0.04);
-  }
-
-  .device-card.offline {
-    border-color: var(--border);
-    opacity: 0.7;
-  }
-
-  /* Card Header */
-  .card-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg3);
-  }
-
-  .card-name-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .online-indicator {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    transition: all 0.3s;
-  }
-
-  .online-indicator.on  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2s infinite; }
-  .online-indicator.off { background: var(--border2); }
-
-  .device-name {
-    font-family: var(--font-ui);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-    letter-spacing: 0.5px;
-  }
-
-  .device-name:hover { color: var(--accent); }
-
-  .device-name-input {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: var(--font-ui);
-    font-size: 15px;
-    font-weight: 600;
-    outline: none;
-    width: 140px;
-  }
-
-  .badge {
-    padding: 2px 7px;
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    flex-shrink: 0;
-  }
-
-  .badge.online  { background: rgba(0,255,136,0.1); border: 1px solid var(--green2); color: var(--green); }
-  .badge.offline { background: rgba(255,68,102,0.1); border: 1px solid var(--red2); color: var(--red); }
-
-  .card-actions {
-    display: flex;
-    gap: 6px;
-    margin-left: 10px;
-  }
-
-  .icon-btn {
-    width: 28px; height: 28px;
-    border: 1px solid var(--border2);
-    background: var(--bg);
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text3);
-    font-size: 13px;
-    transition: all 0.2s;
-  }
-
-  .icon-btn:hover { border-color: var(--red2); color: var(--red); }
-  .icon-btn.edit:hover { border-color: var(--accent2); color: var(--accent); }
-
-  /* Card Meta */
-  .card-meta {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-
-  .meta-item { display: flex; flex-direction: column; gap: 2px; }
-
-  .meta-label {
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    color: var(--text3);
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-  }
-
-  .meta-value {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text2);
-  }
-
-  .meta-value.highlight { color: var(--accent); }
-
-  /* Signal bar */
-  .signal-bar {
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    height: 12px;
-  }
-
-  .signal-bar span {
-    width: 3px;
-    border-radius: 1px;
-    background: var(--border2);
-    transition: background 0.3s;
-  }
-
-  .signal-bar span.active { background: var(--green); }
-
-  /* ── RELAY SECTION ───────────────────────────── */
-  .relay-section {
-    padding: 14px 16px;
-  }
-
-  .relay-section-title {
-    font-size: 9px;
-    letter-spacing: 2px;
-    color: var(--text3);
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
-
-  .relays-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .relay-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--bg);
-    transition: border-color 0.2s;
-  }
-
-  .relay-row:hover { border-color: var(--border2); }
-
-  .relay-index {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text3);
-    width: 20px;
-    text-align: center;
-  }
-
-  .relay-name {
-    flex: 1;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text2);
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .relay-name:hover { color: var(--text); }
-
-  .relay-name-input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--accent);
-    color: var(--text);
-    font-family: var(--font-ui);
-    font-size: 13px;
-    outline: none;
-  }
-
-  .relay-state {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 1px;
-    width: 28px;
-    text-align: center;
-    transition: color 0.2s;
-  }
-
-  .relay-state.on  { color: var(--green); }
-  .relay-state.off { color: var(--text3); }
-
-  /* Toggle Switch */
-  .toggle {
-    position: relative;
-    width: 42px; height: 22px;
-    flex-shrink: 0;
-  }
-
-  .toggle input { opacity: 0; width: 0; height: 0; }
-
-  .toggle-track {
-    position: absolute;
-    inset: 0;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: 11px;
-    cursor: pointer;
-    transition: all 0.25s;
-  }
-
-  .toggle-track::before {
-    content: '';
-    position: absolute;
-    left: 3px; top: 3px;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: var(--text3);
-    transition: all 0.25s;
-  }
-
-  .toggle input:checked + .toggle-track {
-    background: rgba(0,255,136,0.15);
-    border-color: var(--green2);
-    box-shadow: 0 0 8px rgba(0,255,136,0.3);
-  }
-
-  .toggle input:checked + .toggle-track::before {
-    transform: translateX(20px);
-    background: var(--green);
-  }
-
-  /* ── CARD FOOTER ─────────────────────────────── */
-  .card-footer {
-    padding: 8px 16px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .last-seen {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text3);
-  }
-
-  .chip-badge {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: var(--accent2);
-    background: rgba(0,136,170,0.1);
-    border: 1px solid rgba(0,136,170,0.3);
-    padding: 2px 6px;
-    border-radius: 3px;
-  }
-
-  /* ── EMPTY STATE ─────────────────────────────── */
-  .empty-state {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 80px 20px;
-    border: 1px dashed var(--border2);
-    border-radius: 8px;
-  }
-
-  .empty-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
-    opacity: 0.4;
-    filter: grayscale(1);
-  }
-
-  .empty-title {
-    font-family: var(--font-head);
-    font-size: 14px;
-    letter-spacing: 4px;
-    color: var(--text3);
-    margin-bottom: 8px;
-  }
-
-  .empty-desc {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text3);
-    line-height: 1.8;
-  }
-
-  .empty-desc code {
-    color: var(--accent);
-    background: rgba(0,212,255,0.08);
-    padding: 1px 5px;
-    border-radius: 3px;
-  }
-
-  /* ── TOAST ───────────────────────────────────── */
-  #toast-container {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    z-index: 9999;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .toast {
-    padding: 10px 16px;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-left: 3px solid var(--accent);
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text);
-    animation: toast-in 0.3s ease;
-    min-width: 220px;
-  }
-
-  .toast.success { border-left-color: var(--green); }
-  .toast.error   { border-left-color: var(--red); }
-
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
-
-  /* ── RESPONSIVE ──────────────────────────────── */
-  @media (max-width: 768px) {
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
-    .devices-grid { grid-template-columns: 1fr; }
-    header { padding: 12px 16px; }
-    main { padding: 16px; }
-    .header-right { display: none; }
-  }
+:root{
+  --bg:#0a0c10;--bg2:#0f1218;--bg3:#151a22;
+  --border:#1e2a38;--border2:#263344;
+  --accent:#00d4ff;--accent2:#0088aa;
+  --green:#00ff88;--green2:#00aa55;
+  --red:#ff4466;--red2:#aa2233;
+  --amber:#ffaa00;
+  --text:#c8d8e8;--text2:#7a9ab8;--text3:#3a5a78;
+  --font-mono:'Share Tech Mono',monospace;
+  --font-ui:'Rajdhani',sans-serif;
+  --font-head:'Orbitron',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:15px;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,.015) 2px,rgba(0,212,255,.015) 4px);pointer-events:none;z-index:1000}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:14px}
+.logo-icon{width:36px;height:36px;border:2px solid var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:12px;color:var(--accent);letter-spacing:1px;box-shadow:0 0 12px rgba(0,212,255,.3)}
+.logo-text{font-family:var(--font-head);font-size:16px;font-weight:600;color:var(--accent);letter-spacing:3px}
+.logo-sub{font-family:var(--font-mono);font-size:10px;color:var(--text3);letter-spacing:2px;margin-top:2px}
+.header-right{display:flex;align-items:center;gap:16px}
+.status-bar{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11px;color:var(--text2)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite}
+.status-dot.offline{background:var(--red);box-shadow:0 0 6px var(--red);animation:none}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.stat-chip{padding:4px 10px;border:1px solid var(--border2);border-radius:3px;font-family:var(--font-mono);font-size:11px;color:var(--text2);background:var(--bg3)}
+.stat-chip span{color:var(--accent);font-weight:bold}
+.logout-btn{padding:5px 12px;border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text3);font-family:var(--font-mono);font-size:11px;cursor:pointer;letter-spacing:1px;transition:all .2s}
+.logout-btn:hover{border-color:var(--red2);color:var(--red)}
+main{padding:24px 28px;max-width:1600px;margin:0 auto}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px 20px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+.stat-label{font-size:10px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;font-family:var(--font-mono);margin-bottom:8px}
+.stat-value{font-family:var(--font-head);font-size:28px;font-weight:900;color:var(--accent);line-height:1}
+.stat-value.green{color:var(--green)}
+.stat-value.red{color:var(--red)}
+.stat-value.amber{color:var(--amber)}
+.section-title{font-family:var(--font-head);font-size:11px;letter-spacing:4px;color:var(--text3);text-transform:uppercase;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.section-title::before{content:'';width:20px;height:1px;background:var(--accent);display:inline-block}
+.devices-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}
+.device-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .3s,box-shadow .3s;animation:card-in .4s ease both}
+@keyframes card-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.device-card:hover{border-color:var(--border2);box-shadow:0 0 20px rgba(0,212,255,.06)}
+.device-card.online{border-color:rgba(0,255,136,.2);box-shadow:0 0 16px rgba(0,255,136,.04)}
+.device-card.offline{opacity:.7}
+.card-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg3)}
+.card-name-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.online-indicator{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:all .3s}
+.online-indicator.on{background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 2s infinite}
+.online-indicator.off{background:var(--border2)}
+.device-name{font-size:15px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;letter-spacing:.5px}
+.device-name:hover{color:var(--accent)}
+.device-name-input{background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--accent);font-family:var(--font-ui);font-size:15px;font-weight:600;outline:none;width:140px}
+.badge{padding:2px 7px;border-radius:3px;font-family:var(--font-mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;flex-shrink:0}
+.badge.online{background:rgba(0,255,136,.1);border:1px solid var(--green2);color:var(--green)}
+.badge.offline{background:rgba(255,68,102,.1);border:1px solid var(--red2);color:var(--red)}
+.card-actions{display:flex;gap:6px;margin-left:10px}
+.icon-btn{width:28px;height:28px;border:1px solid var(--border2);background:var(--bg);border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:13px;transition:all .2s}
+.icon-btn:hover{border-color:var(--red2);color:var(--red)}
+.icon-btn.edit:hover{border-color:var(--accent2);color:var(--accent)}
+.card-meta{padding:10px 16px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.meta-item{display:flex;flex-direction:column;gap:2px}
+.meta-label{font-size:9px;letter-spacing:1.5px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase}
+.meta-value{font-family:var(--font-mono);font-size:12px;color:var(--text2)}
+.meta-value.highlight{color:var(--accent)}
+.signal-bar{display:flex;align-items:flex-end;gap:2px;height:12px}
+.signal-bar span{width:3px;border-radius:1px;background:var(--border2);transition:background .3s}
+.signal-bar span.active{background:var(--green)}
+.relay-section{padding:14px 16px}
+.relay-section-title{font-size:9px;letter-spacing:2px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;margin-bottom:12px}
+.relays-grid{display:flex;flex-direction:column;gap:8px}
+.relay-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:5px;background:var(--bg);transition:border-color .2s}
+.relay-row:hover{border-color:var(--border2)}
+.relay-index{font-family:var(--font-mono);font-size:10px;color:var(--text3);width:20px;text-align:center}
+.relay-name{flex:1;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.relay-name:hover{color:var(--text)}
+.relay-name-input{flex:1;background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none}
+.relay-state{font-family:var(--font-mono);font-size:10px;letter-spacing:1px;width:28px;text-align:center;transition:color .2s}
+.relay-state.on{color:var(--green)}
+.relay-state.off{color:var(--text3)}
+.toggle{position:relative;width:42px;height:22px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--bg3);border:1px solid var(--border2);border-radius:11px;cursor:pointer;transition:all .25s}
+.toggle-track::before{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--text3);transition:all .25s}
+.toggle input:checked + .toggle-track{background:rgba(0,255,136,.15);border-color:var(--green2);box-shadow:0 0 8px rgba(0,255,136,.3)}
+.toggle input:checked + .toggle-track::before{transform:translateX(20px);background:var(--green)}
+.card-footer{padding:8px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.last-seen{font-family:var(--font-mono);font-size:10px;color:var(--text3)}
+.chip-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--accent2);background:rgba(0,136,170,.1);border:1px solid rgba(0,136,170,.3);padding:2px 6px;border-radius:3px}
+.empty-state{grid-column:1/-1;text-align:center;padding:80px 20px;border:1px dashed var(--border2);border-radius:8px}
+.empty-icon{font-size:48px;margin-bottom:16px;opacity:.4;filter:grayscale(1)}
+.empty-title{font-family:var(--font-head);font-size:14px;letter-spacing:4px;color:var(--text3);margin-bottom:8px}
+.empty-desc{font-family:var(--font-mono);font-size:12px;color:var(--text3);line-height:1.8}
+.empty-desc code{color:var(--accent);background:rgba(0,212,255,.08);padding:1px 5px;border-radius:3px}
+#toast-container{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:10px 16px;background:var(--bg3);border:1px solid var(--border2);border-left:3px solid var(--accent);border-radius:4px;font-family:var(--font-mono);font-size:12px;color:var(--text);animation:toast-in .3s ease;min-width:220px}
+.toast.success{border-left-color:var(--green)}
+.toast.error{border-left-color:var(--red)}
+@keyframes toast-in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:768px){.stats-row{grid-template-columns:repeat(2,1fr)}.devices-grid{grid-template-columns:1fr}.header-right{display:none}}
 </style>
 </head>
 <body>
-
-<!-- HEADER -->
 <header>
   <div class="logo">
     <div class="logo-icon">IOT</div>
@@ -643,356 +128,340 @@
     <div class="stat-chip">DEVICES <span id="hdr-total">0</span></div>
     <div class="stat-chip">ONLINE <span id="hdr-online">0</span></div>
     <div class="stat-chip" id="server-time">--:--:--</div>
+    <span id="user-email" style="font-family:var(--font-mono);font-size:11px;color:var(--text3)"></span>
+    <button class="logout-btn" onclick="doLogout()">LOGOUT</button>
   </div>
 </header>
 
 <main>
-  <!-- STATS -->
   <div class="stats-row">
-    <div class="stat-card">
-      <div class="stat-label">Total Devices</div>
-      <div class="stat-value" id="stat-total">0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Online</div>
-      <div class="stat-value green" id="stat-online">0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Offline</div>
-      <div class="stat-value red" id="stat-offline">0</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Active Relays</div>
-      <div class="stat-value amber" id="stat-relays">0</div>
-    </div>
+    <div class="stat-card"><div class="stat-label">Total Devices</div><div class="stat-value" id="stat-total">0</div></div>
+    <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value green" id="stat-online">0</div></div>
+    <div class="stat-card"><div class="stat-label">Offline</div><div class="stat-value red" id="stat-offline">0</div></div>
+    <div class="stat-card"><div class="stat-label">Active Relays</div><div class="stat-value amber" id="stat-relays">0</div></div>
   </div>
-
-  <!-- DEVICE GRID -->
-  <div class="section-header">
-    <div class="section-title">Registered Devices</div>
-  </div>
+  <div class="section-title">Registered Devices</div>
   <div class="devices-grid" id="devices-grid">
     <div class="empty-state">
       <div class="empty-icon">📡</div>
       <div class="empty-title">NO DEVICES REGISTERED</div>
-      <div class="empty-desc">
-        Flash your ESP32 with the provided firmware.<br/>
-        It will auto-register on boot via<br/>
-        <code>POST /api/devices/register</code>
-      </div>
+      <div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/devices/register</code></div>
     </div>
   </div>
 </main>
-
 <div id="toast-container"></div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  OPTIMIZED SCRIPT – NO FLICKERING, SMOOTH UPDATES
+// ─────────────────────────────────────────────────────────────────────────────
+const TOKEN = localStorage.getItem('iot_token');
+if (!TOKEN) window.location.href = '/login.html';
+
+let currentUserRole = 'user';
 let devices = {};
-const socket = io();
+let socket;
+let updateScheduled = false;
+const pendingUpdates = new Set();
 
-// ── Socket Events ─────────────────────────────────────────────────────────────
-socket.on('connect', () => {
-  setWsStatus(true);
-  toast('Connected to server', 'success');
-});
-
-socket.on('disconnect', () => {
-  setWsStatus(false);
-  toast('Lost connection to server', 'error');
-});
-
-socket.on('devices:init', (list) => {
-  devices = {};
-  list.forEach(d => devices[d.deviceId] = d);
-  renderAll();
-});
-
-socket.on('device:update', (d) => {
-  const isNew = !devices[d.deviceId];
-  devices[d.deviceId] = d;
-  if (isNew) {
-    renderAll();
-    toast(`New device registered: ${d.name}`, 'success');
-  } else {
-    updateCard(d);
-  }
-  updateStats();
-});
-
-socket.on('device:removed', (deviceId) => {
-  delete devices[deviceId];
-  renderAll();
-  toast('Device removed', 'error');
-});
-
-// ── Render ────────────────────────────────────────────────────────────────────
-function renderAll() {
-  const grid = document.getElementById('devices-grid');
-  const list = Object.values(devices);
-
-  if (list.length === 0) {
-    grid.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">📡</div>
-      <div class="empty-title">NO DEVICES REGISTERED</div>
-      <div class="empty-desc">Flash your ESP32 with the provided firmware.<br/>It will auto-register on boot via<br/><code>POST /api/devices/register</code></div>
-    </div>`;
-    updateStats();
-    return;
-  }
-
-  grid.innerHTML = '';
-  list.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
-  list.forEach(d => grid.appendChild(buildCard(d)));
-  updateStats();
-}
-
-function buildCard(d) {
-  const div = document.createElement('div');
-  div.className = `device-card ${d.online ? 'online' : 'offline'}`;
-  div.id = `card-${d.deviceId}`;
-  div.innerHTML = cardHTML(d);
-  attachCardEvents(div, d);
-  return div;
-}
-
-function cardHTML(d) {
-  const rssiSignal = rssiToBars(d.rssi);
-  const uptime = formatUptime(d.uptime);
-  const lastSeen = timeAgo(d.lastSeen);
-  const heapKB = d.freeHeap ? (d.freeHeap / 1024).toFixed(1) + ' KB' : 'N/A';
-
-  const relaysHTML = (d.relays || []).map(r => `
-    <div class="relay-row" id="relay-${d.deviceId}-${r.index}">
-      <span class="relay-index">R${r.index}</span>
-      <span class="relay-name" data-device="${d.deviceId}" data-relay="${r.index}" 
-        title="Click to rename">${escHtml(r.name || 'Relay ' + (r.index+1))}</span>
-      <span class="relay-state ${r.state ? 'on' : 'off'}">${r.state ? 'ON' : 'OFF'}</span>
-      <label class="toggle">
-        <input type="checkbox" ${r.state ? 'checked' : ''} 
-          data-device="${d.deviceId}" data-relay="${r.index}"
-          ${!d.online ? 'disabled' : ''}>
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-  `).join('');
-
-  return `
-    <div class="card-header">
-      <div class="card-name-row">
-        <div class="online-indicator ${d.online ? 'on' : 'off'}"></div>
-        <span class="device-name" data-device="${d.deviceId}" title="Click to rename">${escHtml(d.name)}</span>
-      </div>
-      <span class="badge ${d.online ? 'online' : 'offline'}">${d.online ? 'ONLINE' : 'OFFLINE'}</span>
-      <div class="card-actions">
-        <button class="icon-btn edit" data-device="${d.deviceId}" title="Rename">✎</button>
-        <button class="icon-btn delete" data-device="${d.deviceId}" title="Remove device">✕</button>
-      </div>
-    </div>
-    <div class="card-meta">
-      <div class="meta-item">
-        <span class="meta-label">IP</span>
-        <span class="meta-value highlight">${d.ip || '—'}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">MAC</span>
-        <span class="meta-value">${d.mac}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Signal</span>
-        <div class="signal-bar">${rssiSignal}</div>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Uptime</span>
-        <span class="meta-value">${uptime}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Free Heap</span>
-        <span class="meta-value">${heapKB}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Firmware</span>
-        <span class="meta-value">${d.firmwareVersion || '—'}</span>
-      </div>
-    </div>
-    <div class="relay-section">
-      <div class="relay-section-title">Relay Control (${(d.relays || []).length} channel${(d.relays||[]).length !== 1 ? 's' : ''})</div>
-      <div class="relays-grid">${relaysHTML}</div>
-    </div>
-    <div class="card-footer">
-      <span class="last-seen">Last seen: ${lastSeen}</span>
-      <span class="chip-badge">${d.chipModel || 'ESP32'}</span>
-    </div>
-  `;
-}
-
-function attachCardEvents(card, d) {
-  // Relay toggles
-  card.querySelectorAll('.toggle input').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const deviceId = e.target.dataset.device;
-      const relayIndex = parseInt(e.target.dataset.relay);
-      const state = e.target.checked;
-      setRelay(deviceId, relayIndex, state);
-    });
+// Fetch user info
+fetch('/api/auth/me', {
+  headers: { 'Authorization': 'Bearer ' + TOKEN },
+  credentials: 'include'
+}).then(r => r.ok ? r.json() : Promise.reject())
+  .then(u => {
+    currentUserRole = u.role;
+    document.getElementById('user-email').textContent = u.email;
+  }).catch(() => {
+    localStorage.removeItem('iot_token');
+    window.location.href = '/login.html';
   });
 
-  // Rename device
-  card.querySelectorAll('.icon-btn.edit, .device-name').forEach(el => {
-    el.addEventListener('click', () => startRenameDevice(d.deviceId));
-  });
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  localStorage.removeItem('iot_token');
+  window.location.href = '/login.html';
+}
 
-  // Delete
-  card.querySelector('.icon-btn.delete').addEventListener('click', () => deleteDevice(d.deviceId));
+// Socket.io connection
+socket = io({ auth: { token: TOKEN } });
+socket.on('connect', () => { setWsStatus(true); toast('Connected to server','success'); });
+socket.on('disconnect', () => { setWsStatus(false); toast('Lost connection','error'); });
+socket.on('device:update', d => { devices[d.deviceId] = d; scheduleUpdate(d.deviceId); });
+socket.on('device:removed', id => { delete devices[id]; renderAll(); });
 
-  // Rename relay
-  card.querySelectorAll('.relay-name').forEach(el => {
-    el.addEventListener('click', () => {
-      startRenameRelay(el.dataset.device, parseInt(el.dataset.relay));
+function scheduleUpdate(deviceId) {
+  pendingUpdates.add(deviceId);
+  if (!updateScheduled) {
+    updateScheduled = true;
+    requestAnimationFrame(() => {
+      pendingUpdates.forEach(id => updateCard(devices[id]));
+      pendingUpdates.clear();
+      updateStats();
+      updateScheduled = false;
     });
-  });
-}
-
-function updateCard(d) {
-  const existing = document.getElementById(`card-${d.deviceId}`);
-  if (!existing) { renderAll(); return; }
-  const newCard = buildCard(d);
-  existing.replaceWith(newCard);
-  updateStats();
-}
-
-// ── Stats ─────────────────────────────────────────────────────────────────────
-function updateStats() {
-  const list = Object.values(devices);
-  const online = list.filter(d => d.online).length;
-  const offline = list.length - online;
-  const activeRelays = list.flatMap(d => d.relays || []).filter(r => r.state).length;
-
-  document.getElementById('stat-total').textContent = list.length;
-  document.getElementById('stat-online').textContent = online;
-  document.getElementById('stat-offline').textContent = offline;
-  document.getElementById('stat-relays').textContent = activeRelays;
-  document.getElementById('hdr-total').textContent = list.length;
-  document.getElementById('hdr-online').textContent = online;
-}
-
-// ── Relay Control ─────────────────────────────────────────────────────────────
-async function setRelay(deviceId, relayIndex, state) {
-  try {
-    const res = await fetch(`/api/devices/${deviceId}/relay`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ relayIndex, state }),
-    });
-    if (!res.ok) throw new Error('Server error');
-    toast(`Relay ${relayIndex} → ${state ? 'ON' : 'OFF'}`, state ? 'success' : '');
-  } catch (e) {
-    toast('Failed to set relay', 'error');
   }
 }
 
-// ── Rename Device ─────────────────────────────────────────────────────────────
-function startRenameDevice(deviceId) {
-  const nameEl = document.querySelector(`#card-${deviceId} .device-name`);
-  if (!nameEl) return;
-  const current = nameEl.textContent;
-  const input = document.createElement('input');
-  input.className = 'device-name-input';
-  input.value = current;
-  nameEl.replaceWith(input);
-  input.focus();
-  const save = async () => {
-    const name = input.value.trim() || current;
-    try {
-      await fetch(`/api/devices/${deviceId}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-    } catch(e) {}
-  };
-  input.addEventListener('blur', save);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+// ─────────────────────────────────────────────────────────────────────────────
+//  HELPER FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function getSensor(d, type) {
+  if (!d.sensors) return null;
+  const s = d.sensors.find(s => s.type === type);
+  return s ? s.value : null;
 }
-
-// ── Rename Relay ──────────────────────────────────────────────────────────────
-function startRenameRelay(deviceId, relayIndex) {
-  const nameEl = document.querySelector(`#relay-${deviceId}-${relayIndex} .relay-name`);
-  if (!nameEl) return;
-  const current = nameEl.textContent;
-  const input = document.createElement('input');
-  input.className = 'relay-name-input';
-  input.value = current;
-  nameEl.replaceWith(input);
-  input.focus();
-  const save = async () => {
-    const name = input.value.trim() || current;
-    await fetch(`/api/devices/${deviceId}/relay/${relayIndex}/name`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-  };
-  input.addEventListener('blur', save);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
-}
-
-// ── Delete Device ─────────────────────────────────────────────────────────────
-async function deleteDevice(deviceId) {
-  if (!confirm(`Remove device ${deviceId}?`)) return;
-  await fetch(`/api/devices/${deviceId}`, { method: 'DELETE' });
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function rssiToBars(rssi) {
-  const strength = rssi >= -50 ? 4 : rssi >= -60 ? 3 : rssi >= -70 ? 2 : rssi >= -80 ? 1 : 0;
-  return [8, 11, 14, 17].map((h, i) =>
-    `<span style="height:${h}px" class="${i < strength ? 'active' : ''}"></span>`
-  ).join('');
-}
-
+function getIp(d)       { return d.ipAddress || d.ip || '—'; }
+function getMac(d)      { return d.macAddress || d.mac || 'N/A'; }
+function getRssi(d)     { return getSensor(d,'rssi') ?? d.rssi ?? null; }
+function getHeap(d)     { const h = getSensor(d,'heap') ?? d.freeHeap; return h ? (h/1024).toFixed(1)+' KB' : 'N/A'; }
+function getUptime(d)   { const u = getSensor(d,'uptime') ?? d.uptime; return u ? formatUptime(u) : '—'; }
+function getFirmware(d) { return d.firmware?.version || d.firmwareVersion || '—'; }
+function getChip(d)     { return d.type || d.chipModel || 'ESP32'; }
 function formatUptime(s) {
   if (!s) return '—';
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
-
 function timeAgo(date) {
   if (!date) return 'never';
-  const diff = Math.floor((Date.now() - new Date(date)) / 1000);
+  const diff = Math.floor((Date.now() - new Date(date))/1000);
   if (diff < 5) return 'just now';
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
   return `${Math.floor(diff/3600)}h ago`;
 }
-
-function escHtml(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function rssiToBars(rssi) {
+  const s = rssi == null ? 0 : rssi >= -50 ? 4 : rssi >= -60 ? 3 : rssi >= -70 ? 2 : rssi >= -80 ? 1 : 0;
+  return [8,11,14,17].map((h,i) => `<span style="height:${h}px" class="${i<s?'active':''}"></span>`).join('');
 }
-
-function setWsStatus(connected) {
-  const dot = document.getElementById('ws-dot');
-  const txt = document.getElementById('ws-status');
-  dot.className = `status-dot ${connected ? '' : 'offline'}`;
-  txt.textContent = connected ? 'CONNECTED' : 'DISCONNECTED';
+function esc(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function setWsStatus(on) {
+  document.getElementById('ws-dot').className = `status-dot${on?'':' offline'}`;
+  document.getElementById('ws-status').textContent = on ? 'CONNECTED' : 'DISCONNECTED';
 }
-
-function toast(msg, type = '') {
+function toast(msg, type='') {
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
+  el.className = `toast ${type}`; el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
 
-// ── Clock ─────────────────────────────────────────────────────────────────────
-setInterval(() => {
-  const now = new Date();
-  document.getElementById('server-time').textContent =
-    now.toLocaleTimeString('en-GB', { hour12: false });
-}, 1000);
+// ─────────────────────────────────────────────────────────────────────────────
+//  CARD RENDERING (build once, update smartly)
+// ─────────────────────────────────────────────────────────────────────────────
+function emptyStateHTML() {
+  return `<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">NO DEVICES REGISTERED</div><div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/devices/register</code></div></div>`;
+}
 
-// ── Refresh last-seen every 30s ───────────────────────────────────────────────
+function cardHTML(d) {
+  const rssi = getRssi(d);
+  const rssiBar = rssiToBars(rssi);
+  const isAdmin = currentUserRole === 'admin';
+  const relaysHTML = (d.relays||[]).map(r => `
+    <div class="relay-row" id="relay-${d.deviceId}-${r.index}">
+      <span class="relay-index">R${r.index}</span>
+      <span class="relay-name" data-device="${d.deviceId}" data-relay="${r.index}" title="Click to rename">${esc(r.name||'Relay '+(r.index+1))}</span>
+      <span class="relay-state ${r.state?'on':'off'}">${r.state?'ON':'OFF'}</span>
+      <label class="toggle">
+        <input type="checkbox" ${r.state?'checked':''} data-device="${d.deviceId}" data-relay="${r.index}" ${!d.online || !isAdmin ? 'disabled' : ''}>
+        <span class="toggle-track"></span>
+      </label>
+    </div>`).join('');
+
+  return `
+    <div class="card-header">
+      <div class="card-name-row">
+        <div class="online-indicator ${d.online?'on':'off'}"></div>
+        <span class="device-name" data-device="${d.deviceId}" title="Click to rename">${esc(d.name)}</span>
+      </div>
+      <span class="badge ${d.online?'online':'offline'}">${d.online?'ONLINE':'OFFLINE'}</span>
+      <div class="card-actions">
+        <button class="icon-btn edit" data-device="${d.deviceId}" title="Rename">✎</button>
+        <button class="icon-btn delete" data-device="${d.deviceId}" title="Remove">✕</button>
+      </div>
+    </div>
+    <div class="card-meta">
+      <div class="meta-item"><span class="meta-label">IP</span><span class="meta-value highlight">${getIp(d)}</span></div>
+      <div class="meta-item"><span class="meta-label">MAC</span><span class="meta-value">${getMac(d)}</span></div>
+      <div class="meta-item"><span class="meta-label">Signal</span><div class="signal-bar">${rssiBar}</div></div>
+      <div class="meta-item"><span class="meta-label">Uptime</span><span class="meta-value">${getUptime(d)}</span></div>
+      <div class="meta-item"><span class="meta-label">Free Heap</span><span class="meta-value">${getHeap(d)}</span></div>
+      <div class="meta-item"><span class="meta-label">Firmware</span><span class="meta-value">${getFirmware(d)}</span></div>
+    </div>
+    <div class="relay-section">
+      <div class="relay-section-title">Relay Control (${(d.relays||[]).length} channel${(d.relays||[]).length!==1?'s':''})</div>
+      <div class="relays-grid">${relaysHTML}</div>
+    </div>
+    <div class="card-footer">
+      <span class="last-seen">Last seen: ${timeAgo(d.lastSeen)}</span>
+      <span class="chip-badge">${getChip(d)}</span>
+    </div>`;
+}
+
+function buildCard(d) {
+  const div = document.createElement('div');
+  div.className = `device-card ${d.online?'online':'offline'}`;
+  div.id = `card-${d.deviceId}`;
+  div.innerHTML = cardHTML(d);
+  attachEvents(div, d);
+  return div;
+}
+
+// Update only dynamic parts of an existing card (no rebuild!)
+function updateCard(d) {
+  const card = document.getElementById(`card-${d.deviceId}`);
+  if (!card) { renderAll(); return; }
+  
+  // Online status & indicator
+  card.className = `device-card ${d.online?'online':'offline'}`;
+  const indicator = card.querySelector('.online-indicator');
+  if (indicator) indicator.className = `online-indicator ${d.online?'on':'off'}`;
+  const badge = card.querySelector('.badge');
+  if (badge) { badge.className = `badge ${d.online?'online':'offline'}`; badge.textContent = d.online?'ONLINE':'OFFLINE'; }
+  
+  // IP address
+  const ipEl = card.querySelector('.meta-value.highlight');
+  if (ipEl) ipEl.textContent = getIp(d);
+  
+  // Signal bars
+  const signalEl = card.querySelector('.signal-bar');
+  if (signalEl) signalEl.innerHTML = rssiToBars(getRssi(d));
+  
+  // Last seen
+  const lastSeenEl = card.querySelector('.last-seen');
+  if (lastSeenEl) lastSeenEl.textContent = `Last seen: ${timeAgo(d.lastSeen)}`;
+  
+  // Device name
+  const nameSpan = card.querySelector('.device-name');
+  if (nameSpan && nameSpan.textContent !== d.name) nameSpan.textContent = esc(d.name);
+  
+  // Relays
+  d.relays?.forEach(r => {
+    const toggle = card.querySelector(`input[data-device="${d.deviceId}"][data-relay="${r.index}"]`);
+    if (toggle) {
+      toggle.checked = r.state;
+      toggle.disabled = !d.online || currentUserRole !== 'admin';
+      const row = toggle.closest('.relay-row');
+      if (row) {
+        const stateSpan = row.querySelector('.relay-state');
+        if (stateSpan) { stateSpan.textContent = r.state ? 'ON' : 'OFF'; stateSpan.className = `relay-state ${r.state?'on':'off'}`; }
+        const nameSpanRelay = row.querySelector('.relay-name');
+        if (nameSpanRelay && nameSpanRelay.textContent !== (r.name||`Relay ${r.index+1}`)) {
+          nameSpanRelay.textContent = esc(r.name||`Relay ${r.index+1}`);
+        }
+      }
+    }
+  });
+}
+
+function attachEvents(card, d) {
+  card.querySelectorAll('.toggle input').forEach(input => {
+    input.addEventListener('change', e => {
+      if (e.target.disabled) return;
+      setRelay(e.target.dataset.device, parseInt(e.target.dataset.relay), e.target.checked);
+    });
+  });
+  card.querySelectorAll('.icon-btn.edit, .device-name').forEach(el =>
+    el.addEventListener('click', () => startRenameDevice(d.deviceId)));
+  const delBtn = card.querySelector('.icon-btn.delete');
+  if (delBtn) delBtn.addEventListener('click', () => deleteDevice(d.deviceId));
+  card.querySelectorAll('.relay-name').forEach(el =>
+    el.addEventListener('click', () => startRenameRelay(el.dataset.device, parseInt(el.dataset.relay))));
+}
+
+function renderAll() {
+  const grid = document.getElementById('devices-grid');
+  const list = Object.values(devices);
+  if (!list.length) {
+    grid.innerHTML = emptyStateHTML();
+    updateStats();
+    return;
+  }
+  grid.innerHTML = '';
+  list.sort((a,b) => (b.online?1:0)-(a.online?1:0));
+  list.forEach(d => grid.appendChild(buildCard(d)));
+  updateStats();
+}
+
+function updateStats() {
+  const list = Object.values(devices);
+  const online = list.filter(d => d.online).length;
+  const activeRelays = list.flatMap(d => d.relays||[]).filter(r => r.state).length;
+  document.getElementById('stat-total').textContent = list.length;
+  document.getElementById('stat-online').textContent = online;
+  document.getElementById('stat-offline').textContent = list.length - online;
+  document.getElementById('stat-relays').textContent = activeRelays;
+  document.getElementById('hdr-total').textContent = list.length;
+  document.getElementById('hdr-online').textContent = online;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  RELAY CONTROL & RENAMING
+// ─────────────────────────────────────────────────────────────────────────────
+async function setRelay(deviceId, relayIndex, state) {
+  if (currentUserRole !== 'admin') { toast('Admin access required','error'); return; }
+  try {
+    const res = await fetch(`/api/devices/${deviceId}/relay`, {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+      body: JSON.stringify({ relayIndex, state })
+    });
+    if (!res.ok) throw new Error();
+    toast(`Relay ${relayIndex} → ${state?'ON':'OFF'}`, state?'success':'');
+  } catch { toast('Failed to set relay','error'); }
+}
+
+function startRenameDevice(deviceId) {
+  const nameEl = document.querySelector(`#card-${deviceId} .device-name`);
+  if (!nameEl) return;
+  const current = nameEl.textContent;
+  const input = document.createElement('input');
+  input.className = 'device-name-input'; input.value = current;
+  nameEl.replaceWith(input); input.focus();
+  const save = async () => {
+    const name = input.value.trim() || current;
+    await fetch(`/api/devices/${deviceId}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+      body: JSON.stringify({ name })
+    });
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => { if(e.key==='Enter') input.blur(); });
+}
+
+function startRenameRelay(deviceId, relayIndex) {
+  const nameEl = document.querySelector(`#relay-${deviceId}-${relayIndex} .relay-name`);
+  if (!nameEl) return;
+  const current = nameEl.textContent;
+  const input = document.createElement('input');
+  input.className = 'relay-name-input'; input.value = current;
+  nameEl.replaceWith(input); input.focus();
+  const save = async () => {
+    const name = input.value.trim() || current;
+    await fetch(`/api/devices/${deviceId}/relay/${relayIndex}/name`, {
+      method:'PATCH', headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+      body: JSON.stringify({ name })
+    });
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => { if(e.key==='Enter') input.blur(); });
+}
+
+async function deleteDevice(deviceId) {
+  if (!confirm(`Remove device ${deviceId}?`)) return;
+  await fetch(`/api/devices/${deviceId}`, {
+    method:'DELETE', headers:{'Authorization':'Bearer '+TOKEN}
+  });
+}
+
+// Initial load
+fetch('/api/devices', { headers: { 'Authorization': 'Bearer ' + TOKEN } })
+  .then(r => r.json()).then(list => { list.forEach(d => devices[d.deviceId] = d); renderAll(); });
+
+// Clock & periodic last-seen refresh
+setInterval(() => {
+  document.getElementById('server-time').textContent = new Date().toLocaleTimeString('en-GB',{hour12:false});
+}, 1000);
 setInterval(() => {
   Object.values(devices).forEach(d => {
     const el = document.querySelector(`#card-${d.deviceId} .last-seen`);
