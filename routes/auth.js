@@ -8,7 +8,7 @@ const { JWT_SECRET } = require("../middleware/auth");
 const DEV_MODE = process.env.NODE_ENV !== "production";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Email sending – prefers Resend HTTP API, falls back to SMTP
+//  Email sending – prefers Resend SMTP, falls back to console
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendConfirmEmail(email, token) {
   // Ensure no trailing slash in base URL
@@ -31,67 +31,61 @@ async function sendConfirmEmail(email, token) {
       <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
     </div>`;
 
-  // 1) Try Resend HTTP API (recommended for Railway)
+  // 1) Try Resend SMTP (reliable on Railway)
   if (process.env.RESEND_API_KEY) {
     try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
-          "Content-Type": "application/json",
+      const transporter = nodemailer.createTransport({
+        host: "smtp.resend.com",
+        port: 465,
+        secure: true,          // TLS
+        auth: {
+          user: "resend",       // literal string "resend"
+          pass: process.env.RESEND_API_KEY,
         },
-        body: JSON.stringify({
-          from: "ESP32 IoT Hub <onboarding@resend.dev>",
-          to: email,
-          subject: "Confirm your ESP32 IoT Hub account",
-          html: html,
-        }),
       });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Resend API error: ${response.status} - ${errorText}`);
-      }
-      console.log("[AUTH] Confirmation email sent via Resend");
+
+      await transporter.sendMail({
+        from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`, // must be a verified domain on Resend
+        to: email,
+        subject: "Confirm your ESP32 IoT Hub account",
+        html: html,
+      });
+      console.log("[AUTH] Confirmation email sent via Resend SMTP");
       return;
     } catch (err) {
-      console.error("[AUTH] Resend failed, falling back to SMTP:", err.message);
+      console.error("[AUTH] Resend SMTP failed:", err.message);
     }
   }
 
-  // 2) Fallback to SMTP (Gmail / Outlook) for local development
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.log("[AUTH] EMAIL_USER/EMAIL_PASS not set — skipping email send.");
-    return;
+  // 2) Fallback to Gmail SMTP (for local development)
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        family: 4, // force IPv4
+      });
+
+      await transporter.sendMail({
+        from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Confirm your ESP32 IoT Hub account",
+        html: html,
+      });
+      console.log("[AUTH] Confirmation email sent via Gmail SMTP");
+      return;
+    } catch (err) {
+      console.error("[AUTH] Gmail SMTP failed:", err.message);
+    }
   }
 
-  const service = (process.env.EMAIL_SERVICE || "gmail").toLowerCase();
-  let transporter;
-
-  if (["outlook", "hotmail", "live"].includes(service)) {
-    transporter = nodemailer.createTransport({
-      host: "smtp-mail.outlook.com",
-      port: 587,
-      secure: false,
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-      tls: { ciphers: "SSLv3" },
-    });
-  } else {
-    transporter = nodemailer.createTransport({
-      host: "smtp.resend.com",
-      port: 465,
-      secure: false,
-      auth: { user: resend, pass: process.env.RESEND_API_KEY },
-      family: 4, // force IPv4
-    });
-  }
-
-  await transporter.sendMail({
-    from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: "Confirm your ESP32 IoT Hub account",
-    html: html,
-  });
-  console.log("[AUTH] Confirmation email sent via SMTP");
+  // 3) No email configured – link only in console
+  console.log("[AUTH] No email transport configured – use the link above.");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,7 +115,7 @@ router.post("/register", async (req, res, next) => {
 
     res.json({
       message: DEV_MODE
-        ? "Registered! Copy the confirmation link from the server console and open it."
+        ? "Registered! Copy the confirmation link from the server console."
         : "Registered! Check your email to confirm your account.",
     });
   } catch (err) {
