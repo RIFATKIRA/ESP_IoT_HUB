@@ -2,8 +2,13 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
+const dns = require("dns");
 const User = require("../models/User");
 const { JWT_SECRET } = require("../middleware/auth");
+
+// Force Node's DNS resolver to prefer IPv4 — prevents Gmail SMTP from binding
+// to an IPv6 socket (connect ENETUNREACH ... Local :::0) on dual-stack hosts.
+dns.setDefaultResultOrder("ipv4first");
 
 const DEV_MODE = process.env.NODE_ENV !== "production";
 
@@ -30,34 +35,43 @@ async function sendConfirmEmail(email, token) {
       <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
     </div>`;
 
-  // 1) Try Resend SMTP (if API key exists)
+  // 1) Try Resend SMTP – port 465 first, then 587 if it times out
   if (process.env.RESEND_API_KEY) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: "smtp.resend.com",
-        port: 465,
-        secure: true,
-        auth: {
-          user: "resend",
-          pass: process.env.RESEND_API_KEY,
-        },
-      });
+    const resendConfigs = [
+      { port: 465, secure: true  },   // implicit TLS
+      { port: 587, secure: false },   // STARTTLS – fallback when 465 is blocked
+    ];
 
-      await transporter.sendMail({
-        from: '"ESP32 IoT Hub" <onboarding@resend.dev>',
-        to: email,
-        subject: "Confirm your ESP32 IoT Hub account",
-        html: html,
-      });
-      console.log("[AUTH] ✅ Confirmation email sent via Resend SMTP");
-      return; // success – exit function
-    } catch (err) {
-      console.error("[AUTH] ❌ Resend SMTP failed:", err.message);
-      // continue to fallback – do NOT throw
+    for (const { port, secure } of resendConfigs) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: "smtp.resend.com",
+          port,
+          secure,
+          auth: {
+            user: "resend",
+            pass: process.env.RESEND_API_KEY,
+          },
+        });
+
+        await transporter.sendMail({
+          from: '"ESP32 IoT Hub" <onboarding@resend.dev>',
+          to: email,
+          subject: "Confirm your ESP32 IoT Hub account",
+          html,
+        });
+        console.log(`[AUTH] ✅ Confirmation email sent via Resend SMTP (port ${port})`);
+        return;
+      } catch (err) {
+        console.error(`[AUTH] ❌ Resend SMTP port ${port} failed:`, err.message);
+        // try next config
+      }
     }
   }
 
   // 2) Fallback to Gmail SMTP
+  //    dns.setDefaultResultOrder("ipv4first") above ensures we connect over
+  //    IPv4 even on dual-stack hosts – no extra socket options needed.
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     try {
       const transporter = nodemailer.createTransport({
@@ -68,20 +82,18 @@ async function sendConfirmEmail(email, token) {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
         },
-        family: 4,
       });
 
       await transporter.sendMail({
         from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`,
         to: email,
         subject: "Confirm your ESP32 IoT Hub account",
-        html: html,
+        html,
       });
       console.log("[AUTH] ✅ Confirmation email sent via Gmail SMTP");
       return;
     } catch (err) {
       console.error("[AUTH] ❌ Gmail SMTP failed:", err.message);
-      // continue to console fallback
     }
   }
 
