@@ -219,3 +219,13 @@ process.on("SIGINT", async () => {
   await mongoose.connection.close();
   server.close(() => process.exit(0));
 });
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 UNCAUGHT EXCEPTION:', err);
+  // Do NOT exit – log and continue
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️  UNHANDLED REJECTION:', reason);
+  // Do NOT exit
+});

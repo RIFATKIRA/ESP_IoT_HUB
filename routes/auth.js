@@ -11,7 +11,6 @@ const DEV_MODE = process.env.NODE_ENV !== "production";
 //  Email sending – prefers Resend SMTP, falls back to console
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendConfirmEmail(email, token) {
-  // Ensure no trailing slash in base URL
   let baseUrl = (process.env.BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
   const link = `${baseUrl}/api/auth/confirm/${token}`;
 
@@ -31,33 +30,34 @@ async function sendConfirmEmail(email, token) {
       <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
     </div>`;
 
-  // 1) Try Resend SMTP (reliable on Railway)
+  // 1) Try Resend SMTP (if API key exists)
   if (process.env.RESEND_API_KEY) {
     try {
       const transporter = nodemailer.createTransport({
         host: "smtp.resend.com",
         port: 465,
-        secure: true,          // TLS
+        secure: true,
         auth: {
-          user: "resend",       // literal string "resend"
+          user: "resend",
           pass: process.env.RESEND_API_KEY,
         },
       });
 
       await transporter.sendMail({
-        from: `"ESP32 IoT Hub" <${process.env.EMAIL_USER}>`, // must be a verified domain on Resend
+        from: '"ESP32 IoT Hub" <onboarding@resend.dev>',
         to: email,
         subject: "Confirm your ESP32 IoT Hub account",
         html: html,
       });
-      console.log("[AUTH] Confirmation email sent via Resend SMTP");
-      return;
+      console.log("[AUTH] ✅ Confirmation email sent via Resend SMTP");
+      return; // success – exit function
     } catch (err) {
-      console.error("[AUTH] Resend SMTP failed:", err.message);
+      console.error("[AUTH] ❌ Resend SMTP failed:", err.message);
+      // continue to fallback – do NOT throw
     }
   }
 
-  // 2) Fallback to Gmail SMTP (for local development)
+  // 2) Fallback to Gmail SMTP
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     try {
       const transporter = nodemailer.createTransport({
@@ -68,7 +68,7 @@ async function sendConfirmEmail(email, token) {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
         },
-        family: 4, // force IPv4
+        family: 4,
       });
 
       await transporter.sendMail({
@@ -77,15 +77,16 @@ async function sendConfirmEmail(email, token) {
         subject: "Confirm your ESP32 IoT Hub account",
         html: html,
       });
-      console.log("[AUTH] Confirmation email sent via Gmail SMTP");
+      console.log("[AUTH] ✅ Confirmation email sent via Gmail SMTP");
       return;
     } catch (err) {
-      console.error("[AUTH] Gmail SMTP failed:", err.message);
+      console.error("[AUTH] ❌ Gmail SMTP failed:", err.message);
+      // continue to console fallback
     }
   }
 
-  // 3) No email configured – link only in console
-  console.log("[AUTH] No email transport configured – use the link above.");
+  // 3) If all else fails, the link is already in the logs
+  console.log("[AUTH] ⚠️  No email transport available. Use the link above to confirm.");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
