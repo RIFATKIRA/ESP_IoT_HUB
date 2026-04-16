@@ -8,12 +8,13 @@ const { JWT_SECRET } = require("../middleware/auth");
 
 // Force Node's DNS resolver to prefer IPv4 — prevents Gmail SMTP from binding
 // to an IPv6 socket (connect ENETUNREACH ... Local :::0) on dual-stack hosts.
+// (Has no effect on Resend HTTP which uses fetch over port 443.)
 dns.setDefaultResultOrder("ipv4first");
 
 const DEV_MODE = process.env.NODE_ENV !== "production";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Email sending – prefers Resend SMTP, falls back to console
+//  Email sending – prefers Resend HTTP API (port 443), falls back to Gmail SMTP
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendConfirmEmail(email, token) {
   let baseUrl = (process.env.BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
@@ -35,37 +36,34 @@ async function sendConfirmEmail(email, token) {
       <p style="font-size:12px;color:#3a5a78;">Or copy: ${link}</p>
     </div>`;
 
-  // 1) Try Resend SMTP – port 465 first, then 587 if it times out
+  // 1) Resend HTTP API — uses HTTPS (port 443), works on Railway and any host
+  //    that blocks outbound SMTP (465/587). No SMTP required.
   if (process.env.RESEND_API_KEY) {
-    const resendConfigs = [
-      { port: 465, secure: true  },   // implicit TLS
-      { port: 587, secure: false },   // STARTTLS – fallback when 465 is blocked
-    ];
-
-    for (const { port, secure } of resendConfigs) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: "smtp.resend.com",
-          port,
-          secure,
-          auth: {
-            user: "resend",
-            pass: process.env.RESEND_API_KEY,
-          },
-        });
-
-        await transporter.sendMail({
-          from: '"ESP32 IoT Hub" <onboarding@resend.dev>',
-          to: email,
+    try {
+      const resendRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "ESP32 IoT Hub <onboarding@resend.dev>",
+          to: [email],
           subject: "Confirm your ESP32 IoT Hub account",
           html,
-        });
-        console.log(`[AUTH] ✅ Confirmation email sent via Resend SMTP (port ${port})`);
-        return;
-      } catch (err) {
-        console.error(`[AUTH] ❌ Resend SMTP port ${port} failed:`, err.message);
-        // try next config
+        }),
+      });
+
+      if (!resendRes.ok) {
+        const body = await resendRes.text();
+        throw new Error(`HTTP ${resendRes.status}: ${body}`);
       }
+
+      console.log("[AUTH] ✅ Confirmation email sent via Resend API");
+      return;
+    } catch (err) {
+      console.error("[AUTH] ❌ Resend API failed:", err.message);
+      // fall through to Gmail
     }
   }
 
