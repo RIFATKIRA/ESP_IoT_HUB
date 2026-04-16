@@ -77,10 +77,10 @@ async function sendConfirmEmail(email, token) {
     });
   } else {
     transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
+      host: "smtp.resend.com",
+      port: 465,
       secure: false,
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      auth: { user: resend, pass: process.env.RESEND_API_KEY },
       family: 4, // force IPv4
     });
   }

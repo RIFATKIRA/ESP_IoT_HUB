@@ -159,7 +159,7 @@ app.use("/api/auth/login", authLimiter);
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/", (req, res) => {
-  res.redirect("/login.html");
+  res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
 // API routes
@@ -208,8 +208,8 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📁 Static files: ${path.join(__dirname, "public")}`);
-  console.log(`🌐 Dashboard: http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket endpoint: ws://localhost:${PORT}/esp-ws`);
+  console.log(`🌐 Dashboard: https://server2-production-fbfd.up.railway.app/`);
+  console.log(`🔌 WebSocket endpoint: https://server2-production-fbfd.up.railway.app/`);
 });
 
 // Graceful shutdown
