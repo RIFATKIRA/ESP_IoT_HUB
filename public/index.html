@@ -145,7 +145,7 @@ main{padding:24px 28px;max-width:1600px;margin:0 auto}
     <div class="empty-state">
       <div class="empty-icon">📡</div>
       <div class="empty-title">NO DEVICES REGISTERED</div>
-      <div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/devices/register</code></div>
+      <div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/esp/register</code></div>
     </div>
   </div>
 </main>
@@ -153,7 +153,7 @@ main{padding:24px 28px;max-width:1600px;margin:0 auto}
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
-//  OPTIMIZED SCRIPT – NO FLICKERING, SMOOTH UPDATES
+//  OPTIMIZED SCRIPT – NO FLICKERING, DHT22 SENSOR DISPLAY
 // ─────────────────────────────────────────────────────────────────────────────
 const TOKEN = localStorage.getItem('iot_token');
 if (!TOKEN) window.location.href = '/login.html';
@@ -204,8 +204,18 @@ function scheduleUpdate(deviceId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HELPER FUNCTIONS
+//  HELPER FUNCTIONS (including sensor access)
 // ─────────────────────────────────────────────────────────────────────────────
+function getSensorValue(d, type, name = null) {
+  if (!d.sensors) return '—';
+  const s = name 
+    ? d.sensors.find(s => s.type === type && s.name === name)
+    : d.sensors.find(s => s.type === type);
+  if (!s || s.value === undefined || s.value === null) return '—';
+  if (typeof s.value === 'number') return s.value.toFixed(1);
+  return String(s.value);
+}
+
 function getSensor(d, type) {
   if (!d.sensors) return null;
   const s = d.sensors.find(s => s.type === type);
@@ -248,16 +258,23 @@ function toast(msg, type='') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CARD RENDERING (build once, update smartly)
+//  CARD RENDERING (with DHT22 temperature & humidity)
 // ─────────────────────────────────────────────────────────────────────────────
 function emptyStateHTML() {
-  return `<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">NO DEVICES REGISTERED</div><div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/devices/register</code></div></div>`;
+  return `<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">NO DEVICES REGISTERED</div><div class="empty-desc">Flash your ESP32 and it will auto-register via<br/><code>POST /api/esp/register</code></div></div>`;
 }
 
 function cardHTML(d) {
   const rssi = getRssi(d);
   const rssiBar = rssiToBars(rssi);
   const isAdmin = currentUserRole === 'admin';
+  
+  // DHT22 sensor values
+  const ambientTemp = getSensorValue(d, 'temperature', 'Ambient Temp');
+  const humidity = getSensorValue(d, 'humidity', 'Humidity');
+  // Display CPU temp if available (fallback)
+  const cpuTemp = getSensorValue(d, 'temperature', 'CPU Temp');
+
   const relaysHTML = (d.relays||[]).map(r => `
     <div class="relay-row" id="relay-${d.deviceId}-${r.index}">
       <span class="relay-index">R${r.index}</span>
@@ -288,6 +305,8 @@ function cardHTML(d) {
       <div class="meta-item"><span class="meta-label">Uptime</span><span class="meta-value">${getUptime(d)}</span></div>
       <div class="meta-item"><span class="meta-label">Free Heap</span><span class="meta-value">${getHeap(d)}</span></div>
       <div class="meta-item"><span class="meta-label">Firmware</span><span class="meta-value">${getFirmware(d)}</span></div>
+      <div class="meta-item"><span class="meta-label">🌡️ Temp</span><span class="meta-value">${ambientTemp !== '—' ? ambientTemp+'°C' : (cpuTemp !== '—' ? cpuTemp+'°C' : '—')}</span></div>
+      <div class="meta-item"><span class="meta-label">💧 Humidity</span><span class="meta-value">${humidity !== '—' ? humidity+'%' : '—'}</span></div>
     </div>
     <div class="relay-section">
       <div class="relay-section-title">Relay Control (${(d.relays||[]).length} channel${(d.relays||[]).length!==1?'s':''})</div>
@@ -308,7 +327,6 @@ function buildCard(d) {
   return div;
 }
 
-// Update only dynamic parts of an existing card (no rebuild!)
 function updateCard(d) {
   const card = document.getElementById(`card-${d.deviceId}`);
   if (!card) { renderAll(); return; }
@@ -335,6 +353,21 @@ function updateCard(d) {
   // Device name
   const nameSpan = card.querySelector('.device-name');
   if (nameSpan && nameSpan.textContent !== d.name) nameSpan.textContent = esc(d.name);
+  
+  // Temperature & Humidity (update from sensors)
+  const metaItems = card.querySelectorAll('.meta-item');
+  if (metaItems.length >= 8) {
+    const tempEl = metaItems[6].querySelector('.meta-value');
+    const humEl = metaItems[7].querySelector('.meta-value');
+    const ambientTemp = getSensorValue(d, 'temperature', 'Ambient Temp');
+    const humidity = getSensorValue(d, 'humidity', 'Humidity');
+    const cpuTemp = getSensorValue(d, 'temperature', 'CPU Temp');
+    if (tempEl) {
+      const displayTemp = ambientTemp !== '—' ? ambientTemp : cpuTemp;
+      tempEl.textContent = displayTemp !== '—' ? displayTemp + '°C' : '—';
+    }
+    if (humEl) humEl.textContent = humidity !== '—' ? humidity + '%' : '—';
+  }
   
   // Relays
   d.relays?.forEach(r => {

@@ -56,43 +56,69 @@ router.post("/register", async (req, res, next) => {
 
 router.post("/:deviceId/heartbeat", async (req, res, next) => {
   try {
-    const { rssi, freeHeap, uptime, cpuTemp, ip } = req.body;
+    const { rssi, freeHeap, uptime, cpuTemp, ip, dht22 } = req.body;
     const device = await Device.findOne({ deviceId: req.params.deviceId });
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    device.online = true; device.lastSeen = new Date();
+    device.online = true;
+    device.lastSeen = new Date();
     if (ip) device.ipAddress = ip;
 
-    const sensorUpdates = [
-      { type: "rssi", name: "WiFi RSSI", value: rssi, unit: "dBm" },
-      { type: "heap", name: "Free Heap", value: freeHeap, unit: "bytes" },
-      { type: "uptime", name: "Uptime", value: uptime, unit: "seconds" },
-      { type: "temperature", name: "CPU Temp", value: cpuTemp, unit: "°C" },
-    ];
+    // Helper to update or add a sensor
+    const upsertSensor = (type, name, value, unit) => {
+      if (value === undefined || value === null) return;
+      const existing = device.sensors.find(s => s.type === type && s.name === name);
+      if (existing) {
+        existing.value = value;
+        existing.lastUpdated = new Date();
+      } else {
+        device.sensors.push({ type, name, value, unit, lastUpdated: new Date() });
+      }
+    };
 
-    sensorUpdates.forEach(u => {
-      if (u.value === undefined) return;
-      const s = device.sensors.find(x => x.type === u.type);
-      if (s) { s.value = u.value; s.lastUpdated = new Date(); }
-      else device.sensors.push({ ...u, lastUpdated: new Date() });
-    });
+    // Standard metrics
+    upsertSensor("rssi",   "WiFi RSSI", rssi,     "dBm");
+    upsertSensor("heap",   "Free Heap", freeHeap, "bytes");
+    upsertSensor("uptime", "Uptime",    uptime,   "seconds");
+    if (cpuTemp !== undefined)
+      upsertSensor("temperature", "CPU Temp", cpuTemp, "°C");
 
+    // DHT22 sensor data
+    if (dht22 && dht22.ok) {
+      if (dht22.temperature !== undefined) {
+        upsertSensor("temperature", "Ambient Temp", parseFloat(dht22.temperature), "°C");
+      }
+      if (dht22.humidity !== undefined) {
+        upsertSensor("humidity", "Humidity", parseFloat(dht22.humidity), "%");
+      }
+      if (dht22.heatIndex !== undefined) {
+        upsertSensor("heatIndex", "Heat Index", parseFloat(dht22.heatIndex), "°C");
+      }
+    }
+
+    // Process pending commands
     const commandsToSend = [];
-    const updatedCommands = device.pendingCommands.map(cmd => {
+    device.pendingCommands = device.pendingCommands.map(cmd => {
       if (cmd.status === "pending" && cmd.attempts < cmd.maxAttempts) {
-        cmd.status = "sent"; cmd.attempts += 1;
+        cmd.status = "sent";
+        cmd.attempts += 1;
         commandsToSend.push(cmd);
       }
       return cmd;
     });
-    device.pendingCommands = updatedCommands;
+
     await device.save();
 
-    const deviceObj = device.toObject(); delete deviceObj.pendingCommands;
+    const deviceObj = device.toObject();
+    delete deviceObj.pendingCommands;
     req.app.get("io").emit("device:update", deviceObj);
 
     res.json({
-      commands: commandsToSend.map(c => ({ commandId: c.commandId, type: c.type, payload: c.payload })),
+      commands: commandsToSend.map(c => ({
+        commandId: c.commandId,
+        type: c.type,
+        payload: c.payload,
+      })),
       serverTime: Date.now(),
     });
   } catch (err) {
