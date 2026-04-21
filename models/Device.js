@@ -1,30 +1,43 @@
 const mongoose = require("mongoose");
 
-// ── Relay subdocument ─────────────────────────────────────────────────────────
+// ── Relay subdocument ──────────────────────────────────────────────────────
 const relaySchema = new mongoose.Schema({
   index:       { type: Number, required: true, min: 0, max: 7 },
-  name:        { type: String, default: "Relay" },   // set correctly in pre-save
+  name:        { type: String, default: "Relay" },
   state:       { type: Boolean, default: false },
   type:        { type: String, enum: ["digital", "pwm"], default: "digital" },
   lastUpdated: { type: Date, default: Date.now },
 });
 
-// ── Sensor subdocument ────────────────────────────────────────────────────────
+// ── Sensor subdocument ─────────────────────────────────────────────────────
 const sensorSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ["temperature", "humidity", "pressure", "voltage", "current", "rssi", "heap", "uptime", "custom"],
+    // ✅ FIX: "heatIndex" was missing. Mongoose threw a validation error on
+    // every heartbeat with DHT22 connected, causing device.save() to FAIL.
+    // This meant NOTHING (not even RSSI / heap / uptime) was ever stored.
+    enum: [
+      "temperature", "humidity", "heatIndex", "pressure",
+      "voltage", "current", "power", "energy",
+      "rssi", "heap", "uptime",
+      "co2", "lux", "distance", "motion",
+      "custom",
+    ],
     required: true,
   },
-  name:        String,
-  value:       mongoose.Schema.Types.Mixed,
-  unit:        String,
+  name:        { type: String, default: "" },
+  // ✅ FIX: "group" field added so dashboard can group related readings
+  // (e.g. temperature + humidity + heatIndex all belong to "DHT22").
+  // Without this, Mongoose strict-mode silently dropped the value.
+  group:       { type: String, default: "" },
+  value:       { type: mongoose.Schema.Types.Mixed, default: null },
+  unit:        { type: String, default: "" },
   lastUpdated: { type: Date, default: Date.now },
 });
 
-// ── Command subdocument — NO unique:true on subdoc fields ─────────────────────
+// ── Command subdocument ────────────────────────────────────────────────────
 const commandSchema = new mongoose.Schema({
-  commandId:   { type: String, required: true },   // unique enforced at app level
+  commandId:   { type: String, required: true },
   type:        { type: String, enum: ["relay", "restart", "config", "ota", "custom"], required: true },
   payload:     { type: mongoose.Schema.Types.Mixed, required: true },
   createdAt:   { type: Date, default: Date.now },
@@ -34,91 +47,69 @@ const commandSchema = new mongoose.Schema({
   error:       String,
 });
 
-// ── Device schema ─────────────────────────────────────────────────────────────
+// ── Device schema ──────────────────────────────────────────────────────────
 const deviceSchema = new mongoose.Schema(
   {
     deviceId:         { type: String, required: true, unique: true, index: true, trim: true },
     name:             { type: String, default: "Unnamed Device", trim: true },
     type:             { type: String, default: "ESP32" },
-    firmware: {
-      version:        String,
-      lastUpdate:     Date,
-    },
+    firmware:         { version: String, lastUpdate: Date },
     online:           { type: Boolean, default: false },
     lastSeen:         { type: Date, default: Date.now },
     lastStatusChange: { type: Date, default: Date.now },
     ipAddress:        String,
     macAddress:       String,
-    relays:           { type: [relaySchema], default: [] },
-    sensors:          { type: [sensorSchema], default: [] },
+    relays:           { type: [relaySchema],   default: [] },
+    sensors:          { type: [sensorSchema],  default: [] },
     pendingCommands:  { type: [commandSchema], default: [] },
     config: {
-      heartbeatInterval: { type: Number, default: 10000, min: 5000, max: 60000 },
+      heartbeatInterval: { type: Number, default: 1000, min: 500, max: 60000 },
       autoReconnect:     { type: Boolean, default: true },
-      timezone:          { type: String, default: "UTC" },
+      timezone:          { type: String,  default: "UTC" },
     },
   },
   {
     timestamps: true,
-    toJSON:     { virtuals: true },
-    toObject:   { virtuals: true },
+    toJSON:   { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
-// ── Virtuals ──────────────────────────────────────────────────────────────────
+// ── Virtuals ───────────────────────────────────────────────────────────────
 deviceSchema.virtual("status").get(function () {
   if (!this.online) return "offline";
-  return Date.now() - new Date(this.lastSeen) > 30000 ? "inactive" : "online";
+  return (Date.now() - new Date(this.lastSeen)) > 35000 ? "inactive" : "online";
 });
+deviceSchema.virtual("relayCount").get(function () { return this.relays?.length || 0; });
+deviceSchema.virtual("sensorCount").get(function () { return this.sensors?.length || 0; });
 
-deviceSchema.virtual("relayCount").get(function () {
-  return this.relays?.length || 0;
-});
-
-deviceSchema.virtual("sensorCount").get(function () {
-  return this.sensors?.length || 0;
-});
-
-deviceSchema.pre("save", async function () {
+// ── Hooks ──────────────────────────────────────────────────────────────────
+deviceSchema.pre("save", function () {
   if (this.relays) {
-    this.relays.forEach((relay) => {
-      if (!relay.name || relay.name === "Relay") {
-        relay.name = `Relay ${relay.index + 1}`;
-      }
+    this.relays.forEach(relay => {
+      if (!relay.name || relay.name === "Relay") relay.name = `Relay ${relay.index + 1}`;
     });
   }
-})
+});
 
-// ── Static methods ────────────────────────────────────────────────────────────
-deviceSchema.statics.findOnline = function () {
-  return this.find({ online: true });
-};
-
+// ── Statics ────────────────────────────────────────────────────────────────
+deviceSchema.statics.findOnline = function () { return this.find({ online: true }); };
 deviceSchema.statics.findWithPendingCommands = function () {
   return this.find({ online: true, "pendingCommands.0": { $exists: true } });
 };
 
-// ── Instance methods ──────────────────────────────────────────────────────────
+// ── Instance methods ───────────────────────────────────────────────────────
 deviceSchema.methods.addCommand = function (type, payload) {
   const { v4: uuidv4 } = require("uuid");
   this.pendingCommands.push({
-    commandId:   uuidv4(),
-    type,
-    payload,
-    createdAt:   new Date(),
-    attempts:    0,
-    maxAttempts: 5,
-    status:      "pending",
+    commandId: uuidv4(), type, payload,
+    createdAt: new Date(), attempts: 0, maxAttempts: 5, status: "pending",
   });
   return this.save();
 };
-
 deviceSchema.methods.setRelayState = function (relayIndex, state) {
-  const relay = this.relays.find((r) => r.index === relayIndex);
-  if (relay) {
-    relay.state = state;
-    relay.lastUpdated = new Date();
-  }
+  const relay = this.relays.find(r => r.index === relayIndex);
+  if (relay) { relay.state = state; relay.lastUpdated = new Date(); }
   return this;
 };
 

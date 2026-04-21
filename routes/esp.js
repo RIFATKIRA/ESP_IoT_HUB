@@ -3,6 +3,7 @@ const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const Device = require("../models/Device");
 
+// ── POST /api/esp/register ─────────────────────────────────────────────────
 router.post("/register", async (req, res, next) => {
   try {
     const { mac, name, chipModel, firmwareVersion, relayCount, ip } = req.body;
@@ -17,22 +18,27 @@ router.post("/register", async (req, res, next) => {
         index: i, name: `Relay ${i + 1}`, state: false, type: "digital",
       }));
       device = new Device({
-        deviceId, macAddress: mac, name: name || `ESP32-${mac.slice(-5)}`,
-        type: chipModel || "ESP32", firmware: { version: firmwareVersion, lastUpdate: new Date() },
+        deviceId, macAddress: mac,
+        name: name || `ESP32-${mac.slice(-5)}`,
+        type: chipModel || "ESP32",
+        firmware: { version: firmwareVersion, lastUpdate: new Date() },
         ipAddress: ip, online: true, lastSeen: new Date(), relays,
       });
     } else {
-      device.online = true; device.lastSeen = new Date();
-      if (name) device.name = name;
-      if (chipModel) device.type = chipModel;
+      device.online = true;
+      device.lastSeen = new Date();
+      device.lastStatusChange = new Date();
+      if (name)            device.name = name;
+      if (chipModel)       device.type = chipModel;
       if (firmwareVersion) device.firmware = { version: firmwareVersion, lastUpdate: new Date() };
-      if (ip) device.ipAddress = ip;
-      if (mac) device.macAddress = mac;
+      if (ip)              device.ipAddress = ip;
+      if (mac)             device.macAddress = mac;
 
       if (relayCount && device.relays.length !== relayCount) {
         const existing = device.relays;
         device.relays = Array.from({ length: relayCount }, (_, i) =>
-          existing.find(r => r.index === i) || { index: i, name: `Relay ${i + 1}`, state: false, type: "digital" }
+          existing.find(r => r.index === i) ||
+          { index: i, name: `Relay ${i + 1}`, state: false, type: "digital" }
         );
       }
     }
@@ -40,13 +46,13 @@ router.post("/register", async (req, res, next) => {
     await device.save();
 
     const io = req.app.get("io");
-    const deviceObj = device.toObject(); delete deviceObj.pendingCommands;
-    io.emit("device:update", deviceObj);
+    const obj = device.toObject(); delete obj.pendingCommands;
+    io.emit("device:update", obj);
 
-    console.log(`[ESP] ${isNew ? "New" : "Reconnected"}: ${deviceId}`);
+    console.log(`[ESP] ${isNew ? "New" : "Reconnected"}: ${deviceId} (fw:${firmwareVersion})`);
     res.json({
       deviceId: device.deviceId,
-      relays: device.relays.map(r => ({ index: r.index, state: r.state })),
+      relays:   device.relays.map(r => ({ index: r.index, state: r.state })),
       serverTime: Date.now(),
     });
   } catch (err) {
@@ -54,53 +60,74 @@ router.post("/register", async (req, res, next) => {
   }
 });
 
+// ── POST /api/esp/:deviceId/heartbeat ─────────────────────────────────────
 router.post("/:deviceId/heartbeat", async (req, res, next) => {
   try {
-    const { rssi, freeHeap, uptime, cpuTemp, ip, dht22 } = req.body;
+    const { rssi, freeHeap, uptime, cpuTemp, ip } = req.body;
+
+    // ✅ FIX: Accept BOTH "dht22" (v4 firmware) AND "sensor" (configurator
+    // generated firmware) keys so both firmware styles work with this server.
+    const dht22 = req.body.dht22 || req.body.sensor || null;
+
     const device = await Device.findOne({ deviceId: req.params.deviceId });
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    device.online = true;
+    device.online   = true;
     device.lastSeen = new Date();
     if (ip) device.ipAddress = ip;
 
-    // Helper to update or add a sensor
-    const upsertSensor = (type, name, value, unit) => {
-      if (value === undefined || value === null) return;
+    // ── upsertSensor ──────────────────────────────────────────────────────
+    // Stores or updates a sensor reading. Unlike the old version, this stores
+    // null values too (so the dashboard can show an "ERR" state instead of
+    // silently showing stale data). The "group" field lets the dashboard group
+    // related readings (temp + humidity + heat index) under one sensor block.
+    const upsertSensor = (type, name, value, unit, group = "") => {
       const existing = device.sensors.find(s => s.type === type && s.name === name);
       if (existing) {
-        existing.value = value;
+        existing.value       = value ?? null;
+        existing.unit        = unit;
+        existing.group       = group;
         existing.lastUpdated = new Date();
       } else {
-        device.sensors.push({ type, name, value, unit, lastUpdated: new Date() });
+        device.sensors.push({ type, name, value: value ?? null, unit, group, lastUpdated: new Date() });
       }
     };
 
-    // Standard metrics
-    upsertSensor("rssi",   "WiFi RSSI", rssi,     "dBm");
-    upsertSensor("heap",   "Free Heap", freeHeap, "bytes");
-    upsertSensor("uptime", "Uptime",    uptime,   "seconds");
-    if (cpuTemp !== undefined)
-      upsertSensor("temperature", "CPU Temp", cpuTemp, "°C");
+    // ── System metrics (group="" → shown in compact header row on dashboard) ─
+    if (rssi     !== undefined) upsertSensor("rssi",   "WiFi RSSI", rssi,     "dBm");
+    if (freeHeap !== undefined) upsertSensor("heap",   "Free Heap", freeHeap, "bytes");
+    if (uptime   !== undefined) upsertSensor("uptime", "Uptime",    uptime,   "seconds");
+    if (cpuTemp  !== undefined) upsertSensor("temperature", "CPU Temp", cpuTemp, "°C");
 
-    // DHT22 sensor data
-    if (dht22 && dht22.ok) {
-      if (dht22.temperature !== undefined) {
-        upsertSensor("temperature", "Ambient Temp", parseFloat(dht22.temperature), "°C");
-      }
-      if (dht22.humidity !== undefined) {
-        upsertSensor("humidity", "Humidity", parseFloat(dht22.humidity), "%");
-      }
-      if (dht22.heatIndex !== undefined) {
-        upsertSensor("heatIndex", "Heat Index", parseFloat(dht22.heatIndex), "°C");
-      }
+    // ── DHT22 / DHT11 data (group="DHT22" → shown as sensor block) ───────
+    if (dht22 !== null) {
+      const ok = !!dht22.ok;
+      console.log(`[HB:${req.params.deviceId}] DHT ok=${ok} temp=${dht22.temperature} hum=${dht22.humidity}`);
+
+      // Always store (even null on error) so the dashboard can display the
+      // error state. The old code skipped nulls which hid sensor failures.
+      upsertSensor(
+        "temperature", "Ambient Temp",
+        ok && dht22.temperature !== undefined ? parseFloat(dht22.temperature) : null,
+        "°C", "DHT22"
+      );
+      upsertSensor(
+        "humidity", "Humidity",
+        ok && dht22.humidity !== undefined ? parseFloat(dht22.humidity) : null,
+        "%", "DHT22"
+      );
+      upsertSensor(
+        "heatIndex", "Heat Index",
+        ok && dht22.heatIndex !== undefined ? parseFloat(dht22.heatIndex) : null,
+        "°C", "DHT22"
+      );
     }
 
-    // Process pending commands
+    // ── Pending commands ──────────────────────────────────────────────────
     const commandsToSend = [];
     device.pendingCommands = device.pendingCommands.map(cmd => {
       if (cmd.status === "pending" && cmd.attempts < cmd.maxAttempts) {
-        cmd.status = "sent";
+        cmd.status   = "sent";
         cmd.attempts += 1;
         commandsToSend.push(cmd);
       }
@@ -109,15 +136,14 @@ router.post("/:deviceId/heartbeat", async (req, res, next) => {
 
     await device.save();
 
-    const deviceObj = device.toObject();
-    delete deviceObj.pendingCommands;
-    req.app.get("io").emit("device:update", deviceObj);
+    const obj = device.toObject(); delete obj.pendingCommands;
+    req.app.get("io").emit("device:update", obj);
 
     res.json({
       commands: commandsToSend.map(c => ({
         commandId: c.commandId,
-        type: c.type,
-        payload: c.payload,
+        type:      c.type,
+        payload:   c.payload,
       })),
       serverTime: Date.now(),
     });
@@ -126,6 +152,7 @@ router.post("/:deviceId/heartbeat", async (req, res, next) => {
   }
 });
 
+// ── POST /api/esp/:deviceId/command/:commandId/ack ─────────────────────────
 router.post("/:deviceId/command/:commandId/ack", async (req, res, next) => {
   try {
     const { success, error } = req.body;
@@ -144,9 +171,8 @@ router.post("/:deviceId/command/:commandId/ack", async (req, res, next) => {
     }
 
     await device.save();
-
-    const deviceObj = device.toObject(); delete deviceObj.pendingCommands;
-    req.app.get("io").emit("device:update", deviceObj);
+    const obj = device.toObject(); delete obj.pendingCommands;
+    req.app.get("io").emit("device:update", obj);
     res.json({ ok: true });
   } catch (err) {
     next(err);

@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const http = require("http");
+const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const WebSocket = require("ws");
 const cookieParser = require("cookie-parser");
@@ -10,116 +11,110 @@ const helmet = require("helmet");
 const cors = require("cors");
 const path = require("path");
 
-const authRoutes = require("./routes/auth");
+const authRoutes   = require("./routes/auth");
 const deviceRoutes = require("./routes/devices");
-const espRoutes = require("./routes/esp");
-const Device = require("./models/Device");
+const espRoutes    = require("./routes/esp");
+const Device       = require("./models/Device");
 
-// Validate required environment variables
 const requiredEnvVars = ["JWT_SECRET", "MONGODB_URI"];
 const missing = requiredEnvVars.filter(v => !process.env[v]);
 if (missing.length) {
-  console.error(`FATAL: Missing required environment variables: ${missing.join(", ")}`);
+  console.error(`FATAL: Missing env vars: ${missing.join(", ")}`);
   process.exit(1);
 }
 
-const app = express();
+const app    = express();
 const server = http.createServer(app);
 
-// Socket.IO for web clients
+// ── Socket.IO for web dashboard clients ────────────────────────────────────
 const io = new Server(server, {
-  cors: {
-    origin: process.env.BASE_URL || "http://localhost:3000",
-    credentials: true
+  cors: { origin: process.env.BASE_URL || "http://localhost:3000", credentials: true },
+});
+
+// ✅ FIX: Verify JWT on Socket.IO connection so only authenticated dashboard
+// users receive device:update events.
+io.use((socket, next) => {
+  try {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(" ")[1];
+    if (!token) return next(new Error("Authentication required"));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId   = decoded.id;
+    socket.userRole = decoded.role;
+    next();
+  } catch {
+    next(new Error("Invalid or expired token"));
   }
 });
 
-// WebSocket server for ESP32 devices (no ping interval - stable)
-const wss = new WebSocket.Server({ server, path: '/esp-ws' });
-const espConnections = new Map();
+// ── WebSocket server for ESP32 devices ────────────────────────────────────
+const wss = new WebSocket.Server({ server, path: "/esp-ws" });
+const espConnections = new Map(); // deviceId → ws
 
-wss.on('connection', (ws, req) => {
-  console.log('[WS] ESP32 client connected');
+wss.on("connection", ws => {
   let deviceId = null;
 
-  ws.on('message', async (data) => {
+  ws.on("message", async data => {
     try {
       const msg = JSON.parse(data);
-      
-      if (msg.type === 'register') {
+
+      if (msg.type === "register") {
         deviceId = msg.deviceId;
         espConnections.set(deviceId, ws);
         console.log(`[WS] ESP32 registered: ${deviceId}`);
-        
-        // Send any pending commands immediately
+        // Flush pending commands immediately
         const device = await Device.findOne({ deviceId });
         if (device) {
-          const pending = device.pendingCommands.filter(c => 
-            c.status === 'pending' && c.attempts < c.maxAttempts
+          const pending = device.pendingCommands.filter(
+            c => c.status === "pending" && c.attempts < c.maxAttempts
           );
           for (const cmd of pending) {
-            ws.send(JSON.stringify({
-              type: 'command',
-              commandId: cmd.commandId,
-              payload: cmd.payload
-            }));
-            cmd.status = 'sent';
+            ws.send(JSON.stringify({ type: "command", commandId: cmd.commandId, payload: cmd.payload }));
+            cmd.status   = "sent";
             cmd.attempts += 1;
           }
-          await device.save();
+          if (pending.length) await device.save();
         }
       }
-      
-      if (msg.type === 'ack') {
+
+      if (msg.type === "ack") {
         const { commandId, success, error } = msg;
         const device = await Device.findOne({ deviceId });
         if (device) {
           const cmd = device.pendingCommands.find(c => c.commandId === commandId);
           if (cmd) {
-            cmd.status = success ? 'acknowledged' : 'failed';
+            cmd.status = success ? "acknowledged" : "failed";
             if (error) cmd.error = error;
-            
-            if (!success && cmd.type === 'relay') {
+            if (!success && cmd.type === "relay") {
               const relay = device.relays.find(r => r.index === cmd.payload.relayIndex);
-              if (relay) {
-                relay.state = !cmd.payload.state;
-                relay.lastUpdated = new Date();
-              }
+              if (relay) { relay.state = !cmd.payload.state; relay.lastUpdated = new Date(); }
             }
             await device.save();
-            
-            const deviceObj = device.toObject();
-            delete deviceObj.pendingCommands;
-            io.emit('device:update', deviceObj);
+            const obj = device.toObject(); delete obj.pendingCommands;
+            io.emit("device:update", obj);
           }
         }
       }
     } catch (err) {
-      console.error('[WS] Message error:', err);
+      console.error("[WS] Message error:", err.message);
     }
   });
 
-  ws.on('close', () => {
+  ws.on("close", () => {
     if (deviceId) {
       espConnections.delete(deviceId);
       console.log(`[WS] ESP32 disconnected: ${deviceId}`);
     }
   });
 
-  ws.on('error', (err) => {
-    console.error('[WS] Error:', err);
-  });
+  ws.on("error", err => console.error("[WS] Error:", err.message));
 });
 
-// Helper to send command via WebSocket
 async function sendCommandToESP(deviceId, command) {
   const ws = espConnections.get(deviceId);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'command',
-      commandId: command.commandId,
-      payload: command.payload
-    }));
+    ws.send(JSON.stringify({ type: "command", commandId: command.commandId, payload: command.payload }));
     return true;
   }
   return false;
@@ -129,103 +124,86 @@ app.set("trust proxy", 1);
 app.set("io", io);
 app.set("sendCommandToESP", sendCommandToESP);
 
-// Middleware
+// ── Middleware ─────────────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({
-  origin: process.env.BASE_URL || "http://localhost:3000",
-  credentials: true
-}));
+app.use(cors({ origin: process.env.BASE_URL || "http://localhost:3000", credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use("/api/", apiLimiter);
+// Rate limiting — raised to 300 to handle 1 s heartbeats from many devices
+app.use("/api/", rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/auth/register", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
+app.use("/api/auth/login",    rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-});
-app.use("/api/auth/register", authLimiter);
-app.use("/api/auth/login", authLimiter);
-
-// Static files
+// ── Static & routes ────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "login.html")));
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "login.html"));
-});
-
-// API routes
-app.use("/api/esp", espRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/esp",     espRoutes);
+app.use("/api/auth",    authRoutes);
 app.use("/api/devices", deviceRoutes);
 
-// Health check
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
-});
+app.get("/health", (req, res) => res.json({ status: "OK", timestamp: new Date().toISOString() }));
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Endpoint not found" });
-});
-
-// Global error handler
+app.use((req, res)        => res.status(404).json({ error: "Endpoint not found" }));
 app.use((err, req, res, next) => {
   console.error("Server error:", err.stack);
-  const status = err.status || 500;
-  const message = process.env.NODE_ENV === "production"
-    ? "Internal server error"
-    : err.message;
-  res.status(status).json({ error: message });
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+  });
 });
 
-// MongoDB connection
+// ── MongoDB ────────────────────────────────────────────────────────────────
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => {
-    console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1);
-  });
+  .then(() => {
+    console.log("✅ MongoDB connected");
 
-// Socket.io events
-io.on("connection", (socket) => {
-  console.log(`🔌 Web client connected: ${socket.id}`);
-  socket.on("disconnect", (reason) => {
-    console.log(`🔌 Web client disconnected: ${socket.id} (${reason})`);
-  });
+    // ✅ FIX: Offline detection — runs every 15 s, marks any device that
+    // has not sent a heartbeat in the last 35 s as offline, then pushes a
+    // device:update via Socket.IO so the dashboard turns the card grey
+    // immediately without requiring a page refresh.
+    //
+    // Previously devices stayed "ONLINE" forever once set, because nothing
+    // ever flipped online=false except a restart.
+    const OFFLINE_THRESHOLD_MS = 35_000;
+    setInterval(async () => {
+      try {
+        const cutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
+        const stale  = await Device.find({ online: true, lastSeen: { $lt: cutoff } });
+        for (const device of stale) {
+          device.online           = false;
+          device.lastStatusChange = new Date();
+          await device.save();
+          const obj = device.toObject(); delete obj.pendingCommands;
+          io.emit("device:update", obj);
+          console.log(`[OFFLINE] ${device.deviceId} (silent for ${Math.round((Date.now() - device.lastSeen) / 1000)}s)`);
+        }
+      } catch (err) {
+        console.error("[OFFLINE CHECK]", err.message);
+      }
+    }, 15_000);
+  })
+  .catch(err => { console.error("❌ MongoDB:", err.message); process.exit(1); });
+
+// ── Socket.IO connection ───────────────────────────────────────────────────
+io.on("connection", socket => {
+  console.log(`🔌 Dashboard: ${socket.id} (user:${socket.userId})`);
+  socket.on("disconnect", r => console.log(`🔌 Dashboard left: ${socket.id} (${r})`));
 });
 
-// Start server
+// ── Start ──────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📁 Static files: ${path.join(__dirname, "public")}`);
-  console.log(`🌐 Dashboard: https://server2-production-fbfd.up.railway.app/`);
-  console.log(`🔌 WebSocket endpoint: https://server2-production-fbfd.up.railway.app/`);
+  console.log(`🚀 Server on port ${PORT}`);
+  console.log(`🌐 ${process.env.BASE_URL || `http://localhost:${PORT}`}`);
 });
 
-// Graceful shutdown
 process.on("SIGINT", async () => {
-  console.log("\n🛑 Shutting down...");
   wss.close();
   await mongoose.connection.close();
   server.close(() => process.exit(0));
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('💥 UNCAUGHT EXCEPTION:', err);
-  // Do NOT exit – log and continue
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️  UNHANDLED REJECTION:', reason);
-  // Do NOT exit
-});
+process.on("uncaughtException",  err => console.error("💥 UNCAUGHT:", err));
+process.on("unhandledRejection", err => console.error("⚠️  REJECTION:", err));
