@@ -1,0 +1,51 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json      # rebuilt inside the image via npm ci
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example          # allow the example/template to be included if present
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Editor / OS artifacts ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.swp
+*.swo
+
+# ── Logs & runtime files ──────────────────────────────────────────────────────
+logs
+*.log
+pids
+*.pid
+*.pid.lock
+
+# ── Test & CI ─────────────────────────────────────────────────────────────────
+__tests__
+*.test.js
+*.spec.js
+coverage
+.nyc_output
+.github
+.circleci
+
+# ── Docker files themselves ───────────────────────────────────────────────────
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+README.md
+CHANGELOG.md
+.eslintrc*
+.prettierrc*
